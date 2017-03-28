@@ -431,9 +431,11 @@ namespace scidb
     //
     // Between array methods
     //
-    BCBetweenArray::BCBetweenArray(ArrayDesc const& array, SpatialRangesPtr const& spatialRangesPtr, std::shared_ptr<Array> const& input)
+    BCBetweenArray::BCBetweenArray(ArrayDesc const& array, SpatialRangesPtr const& spatialRangesPtr,
+                                   std::shared_ptr<Array> const& input, std::shared_ptr<Expression> expr)
             : DelegateArray(array, input),
-              _spatialRangesPtr(spatialRangesPtr)
+              _spatialRangesPtr(spatialRangesPtr),
+              expression(expr)
     {
         // Copy _spatialRangesPtr to extendedSpatialRangesPtr, but reducing low by (interval-1) to cover chunkPos.
         _extendedSpatialRangesPtr = make_shared<SpatialRanges>(_spatialRangesPtr->_numDims);

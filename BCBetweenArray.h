@@ -43,6 +43,7 @@
 #include <array/DelegateArray.h>
 #include <array/Metadata.h>
 #include <array/SpatialRangesChunkPosIterator.h>
+#include <query/Operator.h>
 
 namespace scidb
 {
@@ -260,7 +261,8 @@ namespace scidb
         friend class NewBitmapBCBetweenChunkIterator;
 
     public:
-        BCBetweenArray(ArrayDesc const& desc, SpatialRangesPtr const& spatialRangesPtr, std::shared_ptr<Array> const& input);
+        BCBetweenArray(ArrayDesc const& desc, SpatialRangesPtr const& spatialRangesPtr,
+                       std::shared_ptr<Array> const& input, std::shared_ptr<Expression> expr);
 
         DelegateArrayIterator* createArrayIterator(AttributeID attrID) const;
         DelegateChunk* createChunk(DelegateArrayIterator const* iterator, AttributeID attrID) const;
@@ -279,6 +281,8 @@ namespace scidb
          * equivalently, the modified range [-1, 19] contains 0.
          */
         SpatialRangesPtr _extendedSpatialRangesPtr;
+
+        std::shared_ptr<Expression> expression;
     };
 
 } //namespace

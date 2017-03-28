@@ -49,7 +49,7 @@ namespace scidb {
             Coordinates result(nDims);
             for (size_t i = 0; i < nDims; i++)
             {
-                Value const& coord = ((std::shared_ptr<OperatorParamPhysicalExpression>&)_parameters[i])->getExpression()->evaluate();
+                Value const& coord = ((std::shared_ptr<OperatorParamPhysicalExpression>&)_parameters[i + 1])->getExpression()->evaluate();
                 if ( coord.isNull() || coord.get<int64_t>() < dims[i].getStartMin())
                 {
                     result[i] = dims[i].getStartMin();
@@ -69,7 +69,7 @@ namespace scidb {
             Coordinates result(nDims);
             for (size_t i = 0; i < nDims; i++)
             {
-                Value const& coord = ((std::shared_ptr<OperatorParamPhysicalExpression>&)_parameters[i + nDims])->getExpression()->evaluate();
+                Value const& coord = ((std::shared_ptr<OperatorParamPhysicalExpression>&)_parameters[i + nDims + 1])->getExpression()->evaluate();
                 if (coord.isNull() || coord.getInt64() > dims[i].getEndMax())
                 {
                     result[i] = dims[i].getEndMax();
@@ -97,6 +97,11 @@ namespace scidb {
                                         std::shared_ptr<Query> query)
         {
             assert(inputArrays.size() == 1);
+
+            Dimensions const& dims = _schema.getDimensions();
+            size_t nDims = dims.size();
+            assert(_parameters.size() == nDims * 2 + 1);
+            assert(_parameters[0]->getParamType() == PARAM_PHYSICAL_EXPRESSION);
             checkOrUpdateIntervals(_schema, inputArrays[0]);
 
             std::shared_ptr<Array> inputArray = ensureRandomAccess(inputArrays[0], query);
@@ -107,7 +112,13 @@ namespace scidb {
             if (isDominatedBy(lowPos, highPos)) {
                 spatialRangesPtr->_ranges.push_back(SpatialRange(lowPos, highPos));
             }
-            return std::shared_ptr<Array>(make_shared<BCBetweenArray>(_schema, spatialRangesPtr, inputArray));
+
+            return std::shared_ptr<Array>(
+                    make_shared<BCBetweenArray>(
+                            _schema,
+                            spatialRangesPtr,
+                            inputArray,
+                            ((std::shared_ptr<OperatorParamPhysicalExpression>&)_parameters[0])->getExpression()));
         }
     };
 
