@@ -36,6 +36,7 @@ namespace scidb {
      *      ]
      *
      */
+    static log4cxx::LoggerPtr logger(log4cxx::Logger::getLogger("scidb.query.bcbetween"));
 
     class LogicalBCBetween: public LogicalOperator
     {
@@ -43,13 +44,19 @@ namespace scidb {
         LogicalBCBetween(const std::string& logicalName, const std::string& alias):
                 LogicalOperator(logicalName, alias)
         {
+            printf("LogicalBCBetween()");
+            LOG4CXX_DEBUG(logger, "LogicalBCBetween()");
+
             ADD_PARAM_INPUT()
             ADD_PARAM_VARIES()
-            ADD_PARAM_EXPRESSION("bool")
+//            ADD_PARAM_EXPRESSION("bool")
         }
 
         std::vector<std::shared_ptr<OperatorParamPlaceholder>> nextVaryParamPlaceholder(const std::vector<ArrayDesc>& schemas)
         {
+            printf("LogicalBCBetween.nextVaryParamPlaceholder()");
+            LOG4CXX_DEBUG(logger, "LogicalBCBetween.nextVaryParamPlaceholder()");
+
             std::vector<std::shared_ptr<OperatorParamPlaceholder>> res;
             size_t i = _parameters.size();
             Dimensions const& dims = schemas[0].getDimensions();
@@ -60,12 +67,13 @@ namespace scidb {
                 res.push_back(PARAM_CONSTANT(TID_INT64));
             } else
             {
-                if (i == nDims * 2)
-                {
-                    res.push_back(END_OF_VARIES_PARAMS());
-                }
-
-                res.push_back(PARAM_EXPRESSION(TID_BOOL));
+//                if (i == nDims * 2)
+//                {
+//                    res.push_back(END_OF_VARIES_PARAMS());
+//                }
+//
+//                res.push_back(PARAM_EXPRESSION(TID_BOOL));
+                res.push_back(END_OF_VARIES_PARAMS());
             }
 
             return res;
@@ -73,6 +81,9 @@ namespace scidb {
 
         ArrayDesc inferSchema(std::vector<ArrayDesc> schemas, std::shared_ptr<Query> query)
         {
+            printf("LogicalBCBetween.inferSchema()");
+            LOG4CXX_DEBUG(logger, "LogicalBCBetween.inferSchema()");
+
             assert(schemas.size() == 1);
             Dimensions const& dims = schemas[0].getDimensions();
             size_t nDims = dims.size();
@@ -83,6 +94,6 @@ namespace scidb {
         }
     };
 
-    DECLARE_LOGICAL_OPERATOR_FACTORY(LogicalBCBetween, "bc_between")
+    REGISTER_LOGICAL_OPERATOR_FACTORY(LogicalBCBetween, "bc_between");
 
 }   // namespace scidb
