@@ -1,33 +1,54 @@
+/*
+**
+* BEGIN_COPYRIGHT
+*
+* Copyright (C) 2008-2015 SciDB, Inc.
+* All Rights Reserved.
+*
+* SciDB is free software: you can redistribute it and/or modify
+* it under the terms of the AFFERO GNU General Public License as published by
+* the Free Software Foundation.
+*
+* SciDB is distributed "AS-IS" AND WITHOUT ANY WARRANTY OF ANY KIND,
+* INCLUDING ANY IMPLIED WARRANTY OF MERCHANTABILITY,
+* NON-INFRINGEMENT, OR FITNESS FOR A PARTICULAR PURPOSE. See
+* the AFFERO GNU General Public License for the complete license terms.
+*
+* You should have received a copy of the AFFERO GNU General Public License
+* along with SciDB.  If not, see <http://www.gnu.org/licenses/agpl-3.0.html>
+*
+* END_COPYRIGHT
+*/
+
 /**
- * BEGIN_COPYRIGHT
+ * @file BetweenArray.h
  *
- * Copyright (C) 2017 RonyK
- * All Rights Reserved.
+ * @brief The implementation of the array iterator for the between operator
  *
- * You should have received a copy of the AFFERO GNU General Pulbic License
- * along with SciDB. if not, see <http://www.gnu.org/licenses/agpl-3.0.html>
+ * The array iterator for the between maps incoming getChunks calls into the
+ * appropriate getChunks calls for its input array. Then, if the requested chunk
+ * fits in the between range, the entire chunk is returned as-is. Otherwise,
+ * the appropriate piece of the chunk is carved out.
  *
- * END_COPYRIGHT
+ * NOTE: In the current implementation if the between window stretches beyond the
+ * limits of the input array, the behavior of the operator is undefined.
+ *
+ * The top-level array object simply serves as a factory for the iterators.
  */
 
-//
-// Created by rony on 17. 3. 21.
-//
-
-#ifndef ML_BETWEEN_BCBETWEENARRAY_H
-#define ML_BETWEEN_BCBETWEENARRAY_H
+#ifndef BETWEEN_ARRAY_H_
+#define BETWEEN_ARRAY_H_
 
 #include <string>
-#include <vector>
-
 #include <array/DelegateArray.h>
 #include <array/Metadata.h>
-#include <query/LogicalExpression.h>
-#include <query/Expression.h>
 #include <array/SpatialRangesChunkPosIterator.h>
 
 namespace scidb
 {
+
+    using namespace std;
+
     class BCBetweenArray;
     class BCBetweenArrayIterator;
     class BCBetweenChunkIterator;
@@ -40,39 +61,40 @@ namespace scidb
         friend class BCBetweenChunkIterator;
     public:
         std::shared_ptr<ConstChunkIterator> getConstIterator(int iterationMode) const;
+
         void setInputChunk(ConstChunk const& inputChunk);
-        BCBetweenChunk(BCBetweenArray const &array, DelegateArrayIterator const &iterator, AttributeID attrID);
+
+        BCBetweenChunk(BCBetweenArray const& array, DelegateArrayIterator const& iterator, AttributeID attrID);
 
     private:
-        BCBetweenArray const &array;
-        SpatialRange myRange;       // the firstPosition and lastPosition of this chunk.
+        BCBetweenArray const& array;
+        SpatialRange myRange;  // the firstPosition and lastPosition of this chunk.
         bool fullyInside;
         bool fullyOutside;
         std::shared_ptr<ConstArrayIterator> emptyBitmapIterator;
     };
 
-    class BCBetweenChunkIterator: public ConstChunkIterator, CoordinatesMapper
+    class BCBetweenChunkIterator : public ConstChunkIterator, CoordinatesMapper
     {
     public:
-        int getMode() const
-        {
+        int getMode() const {
             return _mode;
         }
 
-        Value const &getItem();
+        Value const& getItem();
         bool isEmpty() const;
         bool end();
         void operator ++();
-        Coordinates const &getPosition();
-        bool setPosition(Coordinates const &pos);
+        Coordinates const& getPosition();
+        bool setPosition(Coordinates const& pos);
         void reset();
-        ConstChunk const &getChunk();
+        ConstChunk const& getChunk();
 
-        BCBetweenChunkIterator(BCBetweenChunk const &chunk, int iterationMode);
+        BCBetweenChunkIterator(BCBetweenChunk const& chunk, int iterationMode);
 
     protected:
-        BCBetweenArray const &array;
-        BCBetweenChunk const &chunk;
+        BCBetweenArray const& array;
+        BCBetweenChunk const& chunk;
         std::shared_ptr<ConstChunkIterator> inputIterator;
         Coordinates currPos;
         int _mode;
@@ -81,31 +103,31 @@ namespace scidb
         MemChunk shapeChunk;
         std::shared_ptr<ConstChunkIterator> emptyBitmapIterator;
         TypeId type;
-        Value& evaluate();
-        Value& buildBitmpa();
-        bool filter();
-        void moveNext();
-        void nextVisible();
 
-        // Several member functions of class SpatialRanges takes a hint, on where the last successful search
+        /**
+         * Several member functions of class SpatialRanges takes a hint, on where the last successful search.
+         */
         mutable size_t _hintForSpatialRanges;
     };
 
     class ExistedBitmapBCBetweenChunkIterator : public BCBetweenChunkIterator
     {
     public:
-        virtual Value const &getItem();
-        ExistedBitmapBCBetweenChunkIterator(BCBetweenChunk const &chunk, int iterationMode);
+        virtual Value const& getItem();
+
+        ExistedBitmapBCBetweenChunkIterator(BCBetweenChunk const& chunk, int iterationMode);
 
     private:
         Value _value;
     };
 
+
     class NewBitmapBCBetweenChunkIterator : public BCBetweenChunkIterator
     {
     public:
-        virtual Value const &getItem();
-        NewBitmapBCBetweenChunkIterator(BCBetweenChunk const &chunk, int iterationMode);
+        virtual Value const& getItem();
+
+        NewBitmapBCBetweenChunkIterator(BCBetweenChunk const& chunk, int iterationMode);
 
     protected:
         Value _value;
@@ -114,12 +136,52 @@ namespace scidb
     class EmptyBitmapBCBetweenChunkIterator : public NewBitmapBCBetweenChunkIterator
     {
     public:
-        virtual Value const &getItem();
+        virtual Value const& getItem();
         virtual bool isEmpty() const;
 
-        EmptyBitmapBCBetweenChunkIterator(BCBetweenChunk const &chunk, int iterationMode);
+        EmptyBitmapBCBetweenChunkIterator(BCBetweenChunk const& chunk, int iterationMode);
     };
 
+/**
+ * ====== NOTE FROM Donghui Z. ON UNIFYING THE TWO ITERATORS ===========
+ *
+ * Prior to the 14.8 release, there were two iterators for BetweenArray.
+ * They differ in their way to find the next chunk that has data and intersects the between ranges.
+ *   - A "random" iterator computes the next chunkPos purely from the between ranges, and asks inputArray whether the chunk exists.
+ *   - A "sequential" iterator asks inputArray for the next chunk, and checks to see if its range intersects the between ranges.
+ * There was a threshold parameter BetweenArray::BETWEEN_SEQUENTIAL_INTERATOR_THRESHOLD = 6000.
+ *
+ * Donghui Z. believes the separation is artificial and non-optimal. It is possible that when running a query,
+ * sometimes the "random" iterator can find the next chunk faster and sometimes the "sequential" iterator can find faster.
+ * So Donghui decided to creatively integrate the two iterator into one, as follows:
+ *   - A "combined" iterator alternates in asking inputArray for the next chunk and computing the next chunkPos from the
+ *     between ranges, and use whichever gets there first.
+ *
+ * Also, this class uses a SpatialRangesChunkIterator to iterate over the chunkPos in the logical space.
+ * Per THE REQUEST TO JUSTIFY LOGICAL-SPACE ITERATION (see RegionCoordinatesIterator.h),
+ * here is why this is ok.
+ * The above described "combined" iterator will not forever iterate over the logical space (until a valid chunkPos is found).
+ * Each iteration step is accompanied with a probing, of whether the next existing chunk intersects the query range.
+ *
+ * ====== BELOW ARE Alex P.'s ORIGINAL NOTE DESCRIBING THE TWO-ITERATOR APPROACH ============
+ *
+ * Between Array has two ArrayIterator types:
+ * 1. BetweenArrayIterator advances chunks (operator++) by finding the next chunk inside the between box
+ *    and probing input to see if that chunk exists. Assume the between box describes b logical chunks,
+ *    and the underlying input array has n chunks - the iteration using this iterator will run in O( b * lg(n))
+ *
+ * 2. BetweenArraySequentialIterator advances chunks by asking input for its next chunk, and, if that chunk does
+ *    not overlap with the between box, continuing to ask for the next input chunk until we either find a chunk
+ *    that fits or we run out of chunks. If the input has n chunks present, this iteration will run in O(n).
+ *
+ * Sometimes b is small (selecting just a few cells) and sometimes b is large (selecting a 10-20 chunks
+ * from a very sparse array). The number n is a count of actual (not logical) chunks and we don't know how big
+ * that is, but assuming about 1TB storage per SciDB instance and 10MB per chunk, we can expect upper bound on
+ * n to be about 100,000. I've never seen real arrays from customers above 5,000 chunks.
+ *
+ * 100,000 / lg(100,000) ~= 6,000. So if b is below that number, use BetweenArrayIterator. Otherwise, use
+ * BetweenArraySequentialIterator. [poliocough, 4/14/12]
+ */
     class BCBetweenArrayIterator : public DelegateArrayIterator
     {
         friend class BCBetweenChunkIterator;
@@ -130,7 +192,7 @@ namespace scidb
          * Here we initialize the current position vector to all zeros, and obtain an iterator for the appropriate
          * attribute in the input array.
          */
-        BCBetweenArrayIterator(BCBetweenArray const& arr, AttributeID attrID, AttributeID inputAttrID);
+        BCBetweenArrayIterator(BCBetweenArray const& between, AttributeID attrID, AttributeID inputAttrID);
 
         /***
          * The end call checks whether we're operating with the last chunk of the between
@@ -189,14 +251,6 @@ namespace scidb
         void advanceToNextChunkInRange();
     };
 
-    class BCBetweenArrayEptyBitmapIterator : public BCBetweenArrayIterator
-    {
-        BCBetweenArray &array;
-    public:
-        virtual ConstChunk const &getChunk();
-        BCBetweenArrayEptyBitmapIterator(BCBetweenArray const &array, AttributeID attrID, AttributeID inputAttrID);
-    };
-
     class BCBetweenArray : public DelegateArray
     {
         friend class BCBetweenChunk;
@@ -208,9 +262,8 @@ namespace scidb
     public:
         BCBetweenArray(ArrayDesc const& desc, SpatialRangesPtr const& spatialRangesPtr, std::shared_ptr<Array> const& input);
 
-        virtual DelegateChunk* createChunk(DelegateArrayIterator const* iterator, AttributeID attrID) const;
-        virtual DelegateArrayIterator* createArrayIterator(AttributeID attrID) const;
-
+        DelegateArrayIterator* createArrayIterator(AttributeID attrID) const;
+        DelegateChunk* createChunk(DelegateArrayIterator const* iterator, AttributeID attrID) const;
 
     private:
         /**
@@ -226,14 +279,8 @@ namespace scidb
          * equivalently, the modified range [-1, 19] contains 0.
          */
         SpatialRangesPtr _extendedSpatialRangesPtr;
-
-        std::map<Coordinates, std::shared_ptr<DelegateChunk>, CoordinatesLess > cache;
-        Mutex mutex;
-        std::shared_ptr<Expression> expression;
-        std::vector<BindInfo> bindings;
-        bool _tileMode;
-        size_t cacheSize;
-        AttributeID emptyAttrID;
     };
-}
-#endif //ML_BETWEEN_BCBETWEENARRAY_H
+
+} //namespace
+
+#endif /* BETWEEN_ARRAY_H_ */
