@@ -118,7 +118,7 @@ namespace scidb {
                             _schema,
                             spatialRangesPtr,
                             inputArray,
-                            ((std::shared_ptr<OperatorParamPhysicalExpression>&)_parameters[0])->getExpression()));
+                            ((std::shared_ptr<OperatorParamPhysicalExpression>&)_parameters[0])->getExpression(), query, _tileMode));
         }
     };
 

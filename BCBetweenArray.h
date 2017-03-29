@@ -36,14 +36,15 @@
  * The top-level array object simply serves as a factory for the iterators.
  */
 
-#ifndef BETWEEN_ARRAY_H_
-#define BETWEEN_ARRAY_H_
+#ifndef BC_BETWEEN_ARRAY_H_
+#define BC_BETWEEN_ARRAY_H_
 
 #include <string>
 #include <array/DelegateArray.h>
 #include <array/Metadata.h>
 #include <array/SpatialRangesChunkPosIterator.h>
 #include <query/Operator.h>
+#include <vector>
 
 namespace scidb
 {
@@ -61,54 +62,73 @@ namespace scidb
     {
         friend class BCBetweenChunkIterator;
     public:
-        std::shared_ptr<ConstChunkIterator> getConstIterator(int iterationMode) const;
-
-        void setInputChunk(ConstChunk const& inputChunk);
+        // Cannot move this function to BCBetweenArray::createChunkIterator()
+        // It needs fullyInside member variable but, BCBetweenArray cannot know.
+         virtual std::shared_ptr<ConstChunkIterator> getConstIterator(int iterationMode) const;
+        virtual void setInputChunk(ConstChunk const& inputChunk);
 
         BCBetweenChunk(BCBetweenArray const& array, DelegateArrayIterator const& iterator, AttributeID attrID);
 
     private:
         BCBetweenArray const& array;
-        SpatialRange myRange;  // the firstPosition and lastPosition of this chunk.
+        SpatialRange myRange;  // the firstPosition and lastPosition of this _chunk.
         bool fullyInside;
         bool fullyOutside;
         std::shared_ptr<ConstArrayIterator> emptyBitmapIterator;
     };
 
-    class BCBetweenChunkIterator : public ConstChunkIterator, CoordinatesMapper
+    class BCBetweenChunkIterator : public DelegateChunkIterator, CoordinatesMapper
     {
+    protected:
+        Value& evaluate();
+        Value& buildBitmap();
+        bool filter();
+        void moveNext();
+        void nextVisible();
+
     public:
         int getMode() const {
             return _mode;
         }
 
-        Value const& getItem();
-        bool isEmpty() const;
-        bool end();
-        void operator ++();
-        Coordinates const& getPosition();
-        bool setPosition(Coordinates const& pos);
-        void reset();
-        ConstChunk const& getChunk();
+        virtual Value const& getItem();
+        virtual bool isEmpty() const;
+        virtual bool end();
+        virtual void operator ++();
+        virtual Coordinates const& getPosition();
+        virtual bool setPosition(Coordinates const& pos);
+        virtual void reset();
+        virtual ConstChunk const& getChunk();
 
-        BCBetweenChunkIterator(BCBetweenChunk const& chunk, int iterationMode);
+        std::shared_ptr<Query> getQuery() { return _query; }
+
+        BCBetweenChunkIterator(BCBetweenArrayIterator const& arrayIterator,
+                               BCBetweenChunk const& chunk, int iterationMode);
 
     protected:
-        BCBetweenArray const& array;
-        BCBetweenChunk const& chunk;
-        std::shared_ptr<ConstChunkIterator> inputIterator;
-        Coordinates currPos;
+        BCBetweenArray const& _array;
+        BCBetweenChunk const& _chunk;
+        std::shared_ptr<ConstChunkIterator> _inputIterator;
+        Coordinates _currPos;
         int _mode;
-        bool hasCurrent;
+        bool _hasCurrent;
         bool _ignoreEmptyCells;
-        MemChunk shapeChunk;
-        std::shared_ptr<ConstChunkIterator> emptyBitmapIterator;
-        TypeId type;
+        MemChunk _shapeChunk;
+        std::shared_ptr<ConstChunkIterator> _emptyBitmapIterator;
+        TypeId _type;
 
         /**
          * Several member functions of class SpatialRanges takes a hint, on where the last successful search.
          */
         mutable size_t _hintForSpatialRanges;
+
+        // For filter boundary
+        ExpressionContext _params;
+        std::vector<std::shared_ptr<ConstChunkIterator>> _iterators;
+        Value _tileValue;
+
+    private:
+        std::shared_ptr<Query> _query;
     };
 
     class ExistedBitmapBCBetweenChunkIterator : public BCBetweenChunkIterator
@@ -116,7 +136,7 @@ namespace scidb
     public:
         virtual Value const& getItem();
 
-        ExistedBitmapBCBetweenChunkIterator(BCBetweenChunk const& chunk, int iterationMode);
+        ExistedBitmapBCBetweenChunkIterator(BCBetweenArrayIterator const& arrayIterator, BCBetweenChunk const& chunk, int iterationMode);
 
     private:
         Value _value;
@@ -128,7 +148,7 @@ namespace scidb
     public:
         virtual Value const& getItem();
 
-        NewBitmapBCBetweenChunkIterator(BCBetweenChunk const& chunk, int iterationMode);
+        NewBitmapBCBetweenChunkIterator(BCBetweenArrayIterator const& arrayIterator, BCBetweenChunk const& chunk, int iterationMode);
 
     protected:
         Value _value;
@@ -140,7 +160,7 @@ namespace scidb
         virtual Value const& getItem();
         virtual bool isEmpty() const;
 
-        EmptyBitmapBCBetweenChunkIterator(BCBetweenChunk const& chunk, int iterationMode);
+        EmptyBitmapBCBetweenChunkIterator(BCBetweenArrayIterator const& arrayIterator, BCBetweenChunk const& chunk, int iterationMode);
     };
 
 /**
@@ -223,6 +243,8 @@ namespace scidb
          */
         virtual void reset();
 
+        virtual ConstChunk const& getChunk();
+
     protected:
         BCBetweenArray const& array;
         SpatialRangesChunkPosIteratorPtr _spatialRangesChunkPosIteratorPtr;
@@ -250,6 +272,19 @@ namespace scidb
          * @note: in reset(), do NOT call this function if the initial position is already valid.
          */
         void advanceToNextChunkInRange();
+
+    private:
+        std::vector< std::shared_ptr<ConstArrayIterator> > iterators;
+        std::shared_ptr<ConstArrayIterator> emptyBitmapIterator;
+        AttributeID inputAttrID;
+    };
+
+    class BCBetweenArrayEmptyBitmapIterator : public BCBetweenArrayIterator
+    {
+        BCBetweenArray& array;
+    public:
+        virtual ConstChunk const& getChunk();
+        BCBetweenArrayEmptyBitmapIterator(BCBetweenArray const& array, AttributeID attrID, AttributeID inputAttrID);
     };
 
     class BCBetweenArray : public DelegateArray
@@ -261,12 +296,17 @@ namespace scidb
         friend class NewBitmapBCBetweenChunkIterator;
 
     public:
-        BCBetweenArray(ArrayDesc const& desc, SpatialRangesPtr const& spatialRangesPtr,
-                       std::shared_ptr<Array> const& input, std::shared_ptr<Expression> expr);
+        BCBetweenArray(ArrayDesc const& desc,
+                       SpatialRangesPtr const& spatialRangesPtr,
+                       std::shared_ptr<Array> const& input,
+                       std::shared_ptr<Expression> expr,
+                       std::shared_ptr<Query>& query,
+                       bool tileMode);
 
-        DelegateArrayIterator* createArrayIterator(AttributeID attrID) const;
-        DelegateChunk* createChunk(DelegateArrayIterator const* iterator, AttributeID attrID) const;
+        virtual DelegateChunk* createChunk(DelegateArrayIterator const* iterator, AttributeID attrID) const;
+        virtual DelegateArrayIterator* createArrayIterator(AttributeID attrID) const;
 
+        std::shared_ptr<DelegateChunk> getEmptyBitmapChunk(BCBetweenArrayEmptyBitmapIterator* iterator);
     private:
         /**
          * The original spatial ranges.
@@ -282,9 +322,18 @@ namespace scidb
          */
         SpatialRangesPtr _extendedSpatialRangesPtr;
 
+        /**
+         * For filter boundary
+         */
+        std::map<Coordinates, std::shared_ptr<DelegateChunk>, CoordinatesLess > cache;
+        Mutex mutex;
         std::shared_ptr<Expression> expression;
+        std::vector<BindInfo> bindings;
+        bool _tileMode;
+        size_t cacheSize;
+        AttributeID emptyAttrID;
     };
 
 } //namespace
 
-#endif /* BETWEEN_ARRAY_H_ */
+#endif /* BC_BETWEEN_ARRAY_H_ */
