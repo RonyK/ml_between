@@ -184,8 +184,6 @@ namespace scidb
     {
         LOG4CXX_DEBUG(logger, "BCBetweenChunkIterator::operator ++() IN : " + coordinateToString(_curPos));
         advancedMoveNext();
-        LOG4CXX_DEBUG(logger, "BCBetweenChunkIterator::operator ++() ADVANCED : " + coordinateToString(_curPos));
-        nextVisible();
         LOG4CXX_DEBUG(logger, "BCBetweenChunkIterator::operator ++() OUT : " + coordinateToString(_curPos));
     }
 
@@ -205,42 +203,29 @@ namespace scidb
 
             _curPos = inputIterator->getPosition();
         }
-
-        LOG4CXX_DEBUG(logger, "BCBetweenChunkIterator::moveNext() OUT : " + coordinateToString(_curPos));
     }
 
     void BCBetweenChunkIterator::advancedMoveNext()
     {
+        LOG4CXX_DEBUG(logger, "BCBetweenChunkIterator::advancedMoveNext() IN : " + coordinateToString(_curPos));
+        moveNext();
+
         if(_ignoreEmptyCells)
         {
-            while (true)
-            {
-                moveNext();
-                if(inputIterator->end())
-                    break;
-
-                Coordinates const& pos = inputIterator->getPosition();
-                if(_array._spatialRangesPtr->findOneThatContains(pos, _hintForSpatialRanges) && filter())
-                {
-                    setPosition(pos);
-                    return;
-                }
-            }
-            _hasCurrent = false;
-        } else
-        {
-            moveNext();
+            nextVisible();
         }
     }
 
     void BCBetweenChunkIterator::nextVisible()
     {
+        LOG4CXX_DEBUG(logger, "BCBetweenChunkIterator::nextVisible() IN : " + coordinateToString(_curPos));
         while(!inputIterator->end())
         {
-            Coordinates const& pos = inputIterator->getPosition();
-            if(_array._spatialRangesPtr->findOneThatContains(pos, _hintForSpatialRanges) && filter())
+            LOG4CXX_DEBUG(logger, "BCBetweenChunkIterator::nextVisible() IT : " + coordinateToString(_curPos));
+            if(_array._spatialRangesPtr->findOneThatContains(_curPos, _hintForSpatialRanges) && filter())
             {
-                setPosition(pos);
+                LOG4CXX_DEBUG(logger, "BCBetweenChunkIterator::nextVisible() FIND : " + coordinateToString(_curPos));
+                _hasCurrent = true;
                 return;
             }
             moveNext();
@@ -254,58 +239,36 @@ namespace scidb
         return _ignoreEmptyCells ? _curPos : inputIterator->getPosition();
     }
 
-    bool BCBetweenChunkIterator::setPosition(Coordinates const& pos)
+    bool BCBetweenChunkIterator::setPosition(Coordinates const& targetPos)
     {
-        if (_ignoreEmptyCells)
-        {
-            LOG4CXX_DEBUG(logger, "BCBetweenChunkIterator::setPosition() Ignore Empty Cells");
-            while(true)
-            {
-                moveNext();
-                if(inputIterator->end())
-                    break;
+        LOG4CXX_DEBUG(logger, "BCBetweenChunkIterator::setPosition(" + coordinateToString(targetPos) + ")");
 
-                if (_array._spatialRangesPtr->findOneThatContains(pos, _hintForSpatialRanges) && inputIterator->setPosition(pos))
-                {
-                    for (size_t i = 0, n = _iterators.size(); i < n; i++)
-                    {
-                        if (_iterators[i] && _iterators[i] != inputIterator)
-                        {
-                            if (!_iterators[i]->setPosition(pos))
-                                throw USER_EXCEPTION(SCIDB_SE_EXECUTION, SCIDB_LE_OPERATION_FAILED) << "setPosition";
-                        }
-                    }
-
-                    _hasCurrent = true;
-                    _curPos = pos;
-
-                    return _hasCurrent;
-                }
-            }
-
-            _hasCurrent = false;
-            return false;
-        }
-
-        LOG4CXX_DEBUG(logger, "BCBetweenChunkIterator::setPosition() Not Ignore Empty Cells");
-        // else
-        if(inputIterator->setPosition(pos))
+        if(inputIterator->setPosition(targetPos))
         {
             for (size_t i = 0, n = _iterators.size(); i < n; i++) {
                 if (_iterators[i] && _iterators[i] != inputIterator) {
-                    if (!_iterators[i]->setPosition(pos))
+                    if (!_iterators[i]->setPosition(targetPos))
                         throw USER_EXCEPTION(SCIDB_SE_EXECUTION, SCIDB_LE_OPERATION_FAILED) << "setPosition";
                 }
             }
+            _curPos = targetPos;
             _hasCurrent = filter();
+
+            if (_ignoreEmptyCells)
+            {
+                nextVisible();
+            }
+            return _hasCurrent;
+        } else
+        {
+            _hasCurrent = false;
             return _hasCurrent;
         }
-        _hasCurrent = false;
-        return _hasCurrent;
     }
 
     void BCBetweenChunkIterator::reset()
     {
+        LOG4CXX_DEBUG(logger, "BCBetweenChunkIterator::reset() INIT : " + coordinateToString(_curPos));
         inputIterator->reset();
         if (!inputIterator->end())
         {
@@ -319,6 +282,7 @@ namespace scidb
         }
 
         nextVisible();
+        LOG4CXX_DEBUG(logger, "BCBetweenChunkIterator::reset() FINISH : " + coordinateToString(_curPos));
     }
 
     ConstChunk const& BCBetweenChunkIterator::getChunk()
@@ -370,7 +334,7 @@ namespace scidb
                     break;
             }
         }
-
+        LOG4CXX_DEBUG(logger, "BCBetweenChunkIterator::BCBetweenChunkIterator()");
         nextVisible();
     }
 
