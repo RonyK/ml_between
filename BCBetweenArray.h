@@ -58,6 +58,8 @@ namespace scidb
     typedef std::shared_ptr<SpatialRanges> SpatialRangesPtr;
     typedef std::shared_ptr<SpatialRangesChunkPosIterator> SpatialRangesChunkPosIteratorPtr;
 
+    std::string coordinateToString(Coordinates const& coor);
+
     class BCBetweenChunk : public DelegateChunk
     {
         friend class BCBetweenChunkIterator;
