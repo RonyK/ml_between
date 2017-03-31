@@ -83,6 +83,7 @@ namespace scidb
         Value& evaluate();
         bool filter();
         void moveNext();
+        void advancedMoveNext();
         void nextVisible();
 
     public:
@@ -105,9 +106,11 @@ namespace scidb
                                BCBetweenChunk const& chunk, int iterationMode);
 
     protected:
+
+
+    protected:
         BCBetweenArray const& _array;
         BCBetweenChunk const& _chunk;
-        std::shared_ptr<ConstChunkIterator> _inputIterator;
         Coordinates _curPos;
         int _mode;
         bool _hasCurrent;
