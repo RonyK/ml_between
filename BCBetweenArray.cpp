@@ -126,12 +126,15 @@ namespace scidb
             switch (_array.bindings[i].kind)
             {
                 case BindInfo::BI_ATTRIBUTE:
+                {
                     _params[i] = _iterators[i]->getItem();
                     break;
+                }
                 case BindInfo::BI_COORDINATE:
+                {
                     _params[i].setInt64(inputIterator->getPosition()[_array.bindings[i].resolvedId]);
                     break;
-
+                }
                 default:
                     break;
             }
@@ -199,8 +202,10 @@ namespace scidb
                     ++(*_iterators[i]);
                 }
             }
+
+            _curPos = inputIterator->getPosition();
         }
-        _curPos = inputIterator->getPosition();
+
         LOG4CXX_DEBUG(logger, "BCBetweenChunkIterator::moveNext() OUT : " + coordinateToString(_curPos));
     }
 
@@ -211,18 +216,14 @@ namespace scidb
             while (true)
             {
                 moveNext();
-                if(!inputIterator->end())
-                {
-                    Coordinates const& pos = inputIterator->getPosition();
-
-                    if(_array._spatialRangesPtr->findOneThatContains(pos, _hintForSpatialRanges) && filter())
-                    {
-                        setPosition(pos);
-                        return;
-                    }
-                } else
-                {
+                if(inputIterator->end())
                     break;
+
+                Coordinates const& pos = inputIterator->getPosition();
+                if(_array._spatialRangesPtr->findOneThatContains(pos, _hintForSpatialRanges) && filter())
+                {
+                    setPosition(pos);
+                    return;
                 }
             }
             _hasCurrent = false;
@@ -239,7 +240,7 @@ namespace scidb
             Coordinates const& pos = inputIterator->getPosition();
             if(_array._spatialRangesPtr->findOneThatContains(pos, _hintForSpatialRanges) && filter())
             {
-                this->setPosition(pos);
+                setPosition(pos);
                 return;
             }
             moveNext();
@@ -257,27 +258,36 @@ namespace scidb
     {
         if (_ignoreEmptyCells)
         {
-            if (_array._spatialRangesPtr->findOneThatContains(pos, _hintForSpatialRanges) && inputIterator->setPosition(pos))
+            LOG4CXX_DEBUG(logger, "BCBetweenChunkIterator::setPosition() Ignore Empty Cells");
+            while(true)
             {
-                for (size_t i = 0, n = _iterators.size(); i < n; i++)
-                {
-                    if (_iterators[i] && _iterators[i] != inputIterator)
-                    {
-                        if (!_iterators[i]->setPosition(pos))
-                            throw USER_EXCEPTION(SCIDB_SE_EXECUTION, SCIDB_LE_OPERATION_FAILED) << "setPosition";
-                    }
-                }
+                moveNext();
+                if(inputIterator->end())
+                    break;
 
-                _hasCurrent = filter();
-                if (_hasCurrent)
+                if (_array._spatialRangesPtr->findOneThatContains(pos, _hintForSpatialRanges) && inputIterator->setPosition(pos))
+                {
+                    for (size_t i = 0, n = _iterators.size(); i < n; i++)
+                    {
+                        if (_iterators[i] && _iterators[i] != inputIterator)
+                        {
+                            if (!_iterators[i]->setPosition(pos))
+                                throw USER_EXCEPTION(SCIDB_SE_EXECUTION, SCIDB_LE_OPERATION_FAILED) << "setPosition";
+                        }
+                    }
+
+                    _hasCurrent = true;
                     _curPos = pos;
 
-                return _hasCurrent;
+                    return _hasCurrent;
+                }
             }
+
             _hasCurrent = false;
             return false;
         }
 
+        LOG4CXX_DEBUG(logger, "BCBetweenChunkIterator::setPosition() Not Ignore Empty Cells");
         // else
         if(inputIterator->setPosition(pos))
         {
