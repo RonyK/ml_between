@@ -250,6 +250,10 @@ namespace scidb
         virtual ConstChunk const& getChunk();
 
     protected:
+        bool setAllIteratorsPosition(Coordinates const& pos);
+        void moveNext();
+
+    protected:
         BCBetweenArray const& _array;
         SpatialRangesChunkPosIteratorPtr _spatialRangesChunkPosIteratorPtr;
         Coordinates _curPos;
