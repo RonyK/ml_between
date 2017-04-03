@@ -22,9 +22,9 @@ namespace scidb {
      *
      * @par Input:
      *   - srcArray : a source array with srcAttrs, and srcDims.
+     *   - the boundary_expression : expression for boundary check.
      *   - the array low coordinates : low coordinates of srcArray on each dimension.
      *   - the array high coordinates : high coordinates of srcArray on each dimension.
-     *   - the boundary_expression : expression for boundary check.
      *
      * @par Output array:
      *      <

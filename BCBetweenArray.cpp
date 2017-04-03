@@ -37,8 +37,6 @@ namespace scidb
 {
     using namespace boost;
 
-    static log4cxx::LoggerPtr logger(log4cxx::Logger::getLogger("scidb.query.bcbetween"));
-
     std::string coordinateToString(Coordinates const& coor)
     {
         std::ostringstream oss;
@@ -62,7 +60,6 @@ namespace scidb
     //
     std::shared_ptr<ConstChunkIterator> BCBetweenChunk::getConstIterator(int iterationMode) const
     {
-        LOG4CXX_DEBUG(logger, "BCBetweenChunk::getConstIterator() + ");
         BCBetweenArrayIterator arrayIterator = (BCBetweenArrayIterator const&)getArrayIterator();
         AttributeDesc const& attr = getAttributeDesc();
         // TileMode is false.
@@ -122,23 +119,12 @@ namespace scidb
 
     inline Value& BCBetweenChunkIterator::evaluate()
     {
-        LOG4CXX_DEBUG(logger, "BCBetweenChunkIterator::evaluate() +");
-        LOG4CXX_DEBUG(logger, "BCBetweenChunkIterator::evaluate() SIZE : " + std::to_string(_array.bindings.size()));
-        LOG4CXX_DEBUG(logger, "BCBetweenChunkIterator::evaluate() POS : " + coordinateToString(_curPos));
         for (size_t i = 0, n = _array.bindings.size(); i < n; i++)
         {
             switch (_array.bindings[i].kind)
             {
                 case BindInfo::BI_ATTRIBUTE:
                 {
-                    if(_iterators[i])
-                    {
-                        LOG4CXX_DEBUG(logger, "BCBetweenChunkIterator::evaluate() _iterator exist");
-                        LOG4CXX_DEBUG(logger, "BCBetweenChunkIterator::evaluate() _iterator[" + std::to_string(i) + "] : " + coordinateToString(_iterators[i]->getPosition()));
-                    }else
-                    {
-                        LOG4CXX_DEBUG(logger, "BCBetweenChunkIterator::evaluate() _iterator don't exist");
-                    }
                     _params[i] = _iterators[i]->getItem();
                     break;
                 }
@@ -152,13 +138,11 @@ namespace scidb
             }
         }
 
-        LOG4CXX_DEBUG(logger, "BCBetweenChunkIterator::evaluate() -");
         return const_cast<Value&>(_array.expression->evaluate(_params));
     }
 
     inline bool BCBetweenChunkIterator::filter()
     {
-        LOG4CXX_DEBUG(logger, "BCBetweenChunkIterator::filter() :" + coordinateToString(_curPos));
         if(_array._innerSpatialRnagesPtr->findOneThatContains(_curPos, _hintForSpatialRanges))
         {
             return true;
@@ -175,11 +159,8 @@ namespace scidb
 
     Value const& BCBetweenChunkIterator::getItem()
     {
-        LOG4CXX_DEBUG(logger, "BCBetweenChunkIterator::getItem() +");
-        LOG4CXX_DEBUG(logger, coordinateToString(_curPos));
         if (!_hasCurrent)
         {
-            LOG4CXX_DEBUG(logger, "BCBetweenChunkIterator::getItem() no _hasCurrent Exception");
             throw USER_EXCEPTION(SCIDB_SE_EXECUTION, SCIDB_LE_NO_CURRENT_ELEMENT);
         }
 
@@ -188,11 +169,8 @@ namespace scidb
 
     bool BCBetweenChunkIterator::isEmpty() const
     {
-        LOG4CXX_DEBUG(logger, "BCBetweenChunkIterator::isEmpty() +");
-
         if (!_hasCurrent)
         {
-            LOG4CXX_DEBUG(logger, "BCBetweenChunkIterator::isEmpty() no _hasCurrent Exception");
             throw USER_EXCEPTION(SCIDB_SE_EXECUTION, SCIDB_LE_NO_CURRENT_ELEMENT);
         }
         return inputIterator->isEmpty() ||
@@ -206,14 +184,11 @@ namespace scidb
 
     void BCBetweenChunkIterator::operator ++()
     {
-        LOG4CXX_DEBUG(logger, "BCBetweenChunkIterator::operator ++() IN : " + coordinateToString(_curPos));
         advancedMoveNext();
-        LOG4CXX_DEBUG(logger, "BCBetweenChunkIterator::operator ++() OUT : " + coordinateToString(_curPos));
     }
 
     void BCBetweenChunkIterator::moveNext()
     {
-        LOG4CXX_DEBUG(logger, "BCBetweenChunkIterator::moveNext() IN : " + coordinateToString(_curPos));
         ++(*inputIterator);
         if (!inputIterator->end())
         {
@@ -231,7 +206,6 @@ namespace scidb
 
     void BCBetweenChunkIterator::advancedMoveNext()
     {
-        LOG4CXX_DEBUG(logger, "BCBetweenChunkIterator::advancedMoveNext() IN : " + coordinateToString(_curPos));
         moveNext();
 
         if(_ignoreEmptyCells)
@@ -242,19 +216,15 @@ namespace scidb
 
     void BCBetweenChunkIterator::nextVisible()
     {
-        LOG4CXX_DEBUG(logger, "BCBetweenChunkIterator::nextVisible() IN : " + coordinateToString(_curPos));
         while(!inputIterator->end())
         {
-            LOG4CXX_DEBUG(logger, "BCBetweenChunkIterator::nextVisible() IT : " + coordinateToString(_curPos));
             if(filter())
             {
-                LOG4CXX_DEBUG(logger, "BCBetweenChunkIterator::nextVisible() FIND : " + coordinateToString(_curPos));
                 _hasCurrent = true;
                 return;
             }
             moveNext();
         }
-        LOG4CXX_DEBUG(logger, "BCBetweenChunkIterator::nextVisible() END _hasCurrent = false");
         _hasCurrent = false;
     }
 
@@ -265,8 +235,6 @@ namespace scidb
 
     bool BCBetweenChunkIterator::setPosition(Coordinates const& targetPos)
     {
-        LOG4CXX_DEBUG(logger, "BCBetweenChunkIterator::setPosition(" + coordinateToString(targetPos) + ")");
-
         if(inputIterator->setPosition(targetPos))
         {
             for (size_t i = 0, n = _iterators.size(); i < n; i++)
@@ -294,7 +262,6 @@ namespace scidb
 
     void BCBetweenChunkIterator::reset()
     {
-        LOG4CXX_DEBUG(logger, "BCBetweenChunkIterator::reset() INIT : " + coordinateToString(_curPos));
         inputIterator->reset();
         if (!inputIterator->end())
         {
@@ -310,7 +277,6 @@ namespace scidb
         }
 
         nextVisible();
-        LOG4CXX_DEBUG(logger, "BCBetweenChunkIterator::reset() FINISH : " + coordinateToString(_curPos));
     }
 
     ConstChunk const& BCBetweenChunkIterator::getChunk()
@@ -332,7 +298,6 @@ namespace scidb
               _params(*_array.expression),
               _query(Query::getValidQueryPtr(_array._query))
     {
-        LOG4CXX_DEBUG(logger, "BCBetweenChunkIterator::BCBetweenChunkIterator() +");
         inputIterator = aChunk.getInputChunk().getConstIterator(iterationMode & ~INTENDED_TILE_MODE);
 
         for (size_t i = 0, n = _array.bindings.size(); i < n; i++) {
@@ -344,14 +309,11 @@ namespace scidb
                 }
                 case BindInfo::BI_ATTRIBUTE:
                 {
-                    LOG4CXX_DEBUG(logger, "BCBetweenChunkIterator::BCBetweenChunkIterator() BI_ATTRIBUTE");
                     if ((AttributeID)_array.bindings[i].resolvedId == arrayIterator._inputAttrID)
                     {
-                        LOG4CXX_DEBUG(logger, "BCBetweenChunkIterator::BCBetweenChunkIterator() INPUT ATTRIBUTE");
                         _iterators[i] = inputIterator;
                     } else
                     {
-                        LOG4CXX_DEBUG(logger, "BCBetweenChunkIterator::BCBetweenChunkIterator() getConstIterator");
                         _iterators[i] = arrayIterator._iterators[i]->getChunk().getConstIterator(IGNORE_EMPTY_CELLS);
                     }
                     break;
@@ -368,7 +330,6 @@ namespace scidb
 
         reset();
         nextVisible();
-        LOG4CXX_DEBUG(logger, "BCBetweenChunkIterator::BCBetweenChunkIterator() -");
     }
 
     //
@@ -461,14 +422,11 @@ namespace scidb
             {
                 case BindInfo::BI_ATTRIBUTE:
                 {
-                    LOG4CXX_DEBUG(logger, "BCBetweenArrayIterator::BCBetweenArrayIterator() BI_ATTRIBUTE");
                     if ((AttributeID)_array.bindings[i].resolvedId == inputAttrID)
                     {
-                        LOG4CXX_DEBUG(logger, "BCBetweenArrayIterator::BCBetweenArrayIterator() INPUT ATTRIBUTE");
                         _iterators[i] = inputIterator;
                     } else
                     {
-                        LOG4CXX_DEBUG(logger, "BCBetweenArrayIterator::BCBetweenArrayIterator() getConstIterator");
                         _iterators[i] = _array.getInputArray()->
                                 getConstIterator(safe_static_cast<AttributeID>(_array.bindings[i].resolvedId));
                     }
@@ -609,7 +567,6 @@ namespace scidb
             Coordinates const& myPos = _spatialRangesChunkPosIteratorPtr->getPosition();
             if (inputIterator->setPosition(myPos))
             {
-                LOG4CXX_DEBUG(logger, "BCBetweenArrayIterator::BCBetweenArrayIterator() SET NEW POS : " + coordinateToString(myPos));
                 setAllIteratorsPosition(myPos);
                 // The position suggested by _spatialRangesChunkPosIterator exists in _inputIterator.
                 // Declare victory!
@@ -620,8 +577,6 @@ namespace scidb
             {
                 // The setPosition, even though unsuccessful, may brought inputInterator to a bad state.
                 // Restore to its previous valid state (even though not in any query range).
-                LOG4CXX_DEBUG(logger, "BCBetweenArrayIterator::BCBetweenArrayIterator() RESTORE POS : " + coordinateToString(_curPos));
-
                 bool restored = inputIterator->setPosition(_curPos);
                 setAllIteratorsPosition(_curPos);
                 SCIDB_ASSERT(restored);
