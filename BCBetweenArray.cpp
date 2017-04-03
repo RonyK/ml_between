@@ -159,8 +159,18 @@ namespace scidb
     inline bool BCBetweenChunkIterator::filter()
     {
         LOG4CXX_DEBUG(logger, "BCBetweenChunkIterator::filter() :" + coordinateToString(_curPos));
-        Value const& result = evaluate();
-        return !result.isNull() && result.getBool();
+        if(_array._innerSpatialRnagesPtr->findOneThatContains(_curPos, _hintForSpatialRanges))
+        {
+            return true;
+        }
+
+        if(_array._spatialRangesPtr->findOneThatContains(_curPos, _hintForSpatialRanges))
+        {
+            Value const& result = evaluate();
+            return !result.isNull() && result.getBool();
+        }
+
+        return false;
     }
 
     Value const& BCBetweenChunkIterator::getItem()
@@ -236,7 +246,7 @@ namespace scidb
         while(!inputIterator->end())
         {
             LOG4CXX_DEBUG(logger, "BCBetweenChunkIterator::nextVisible() IT : " + coordinateToString(_curPos));
-            if(_array._spatialRangesPtr->findOneThatContains(_curPos, _hintForSpatialRanges) && filter())
+            if(filter())
             {
                 LOG4CXX_DEBUG(logger, "BCBetweenChunkIterator::nextVisible() FIND : " + coordinateToString(_curPos));
                 _hasCurrent = true;
@@ -295,6 +305,8 @@ namespace scidb
                     _iterators[i]->reset();
                 }
             }
+
+            _curPos = inputIterator->getPosition();
         }
 
         nextVisible();
@@ -365,9 +377,7 @@ namespace scidb
     Value const& ExistedBitmapBCBetweenChunkIterator::getItem()
     {
         _value.setBool(
-                inputIterator->getItem().getBool() &&
-                _array._spatialRangesPtr->findOneThatContains(_curPos, _hintForSpatialRanges) &&
-                filter()
+                inputIterator->getItem().getBool() && filter()
         );
         return _value;
     }
