@@ -15,7 +15,7 @@ namespace scidb {
      * @brief The operator: bc_between().
      *
      * @par Synopsis:
-     *   bc_between( srcArray, boundary_expression, {, arrayLowCoord}+ {, arrayHighCoord}+ )
+     *   bc_between( srcArray, boundary_expression, {, arrayLowCoord}+ {, arrayHighCoord}+ {, bc_flag})
      *
      * @par Summary:
      *   Boundary check between operator.
@@ -25,6 +25,8 @@ namespace scidb {
      *   - the boundary_expression : expression for boundary check.
      *   - the array low coordinates : low coordinates of srcArray on each dimension.
      *   - the array high coordinates : high coordinates of srcArray on each dimension.
+     *   - the boundary condition flag : flag whether adapting boundary condition or not. (Optional)
+     *                                   Default : True
      *
      * @par Output array:
      *      <
@@ -35,7 +37,6 @@ namespace scidb {
      *      ]
      *
      */
-
     class LogicalBCBetween: public  LogicalOperator
     {
     public:
@@ -50,13 +51,19 @@ namespace scidb {
         {
             std::vector<std::shared_ptr<OperatorParamPlaceholder> > res;
             size_t i = _parameters.size();
+
             Dimensions const& dims = schemas[0].getDimensions();
             size_t nDims = dims.size();
-            if (i < nDims*2 + 1)
+            if (i < nDims * 2 + 1){
                 res.push_back(PARAM_CONSTANT(TID_INT64));
-            else
+            } else
+            {
                 res.push_back(END_OF_VARIES_PARAMS());
-
+                if(i < nDims * 3 + 1)
+                {
+                    res.push_back(PARAM_CONSTANT(TID_BOOL));
+                }
+            }
             return res;
         }
 
@@ -66,7 +73,8 @@ namespace scidb {
 
             Dimensions const& dims = schemas[0].getDimensions();
             size_t nDims = dims.size();
-            assert(_parameters.size() == nDims * 2 + 1);
+            assert(_parameters.size() >= nDims * 2 + 1);
+            assert(_parameters.size() <= nDims * 3 + 1);
             assert(_parameters[0]->getParamType() == PARAM_LOGICAL_EXPRESSION);
 
             return addEmptyTagAttribute(schemas[0]);

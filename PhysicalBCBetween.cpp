@@ -32,8 +32,8 @@
 #include <array/Array.h>
 #include "BCBetweenArray.h"
 
-namespace scidb {
-
+namespace scidb
+{
     class PhysicalBCBetween: public  PhysicalOperator
     {
     public:
@@ -82,30 +82,47 @@ namespace scidb {
             return result;
         }
 
-        Coordinates getInnerWindowStart(Coordinates const& input) const
+        Coordinates getInnerWindowStart(Coordinates const& input, bool const flags[]) const
         {
             size_t nDims = input.size();
             Coordinates result(nDims);
             for(size_t i = 0; i < nDims; i++)
             {
                 // For boundary check, increase all start coordinate value.
-                result[i] = input[i] + 1;
+                if(flags[i])
+                    result[i] = input[i] + 1;
+                else
+                    result[i] = input[i];
             }
-
             return result;
         }
 
-        Coordinates getInnerWindowEnd(Coordinates const& input) const
+        Coordinates getInnerWindowEnd(Coordinates const& input, bool const flags[]) const
         {
             size_t nDims = input.size();
             Coordinates result(nDims);
             for(size_t i = 0; i < nDims; i++)
             {
                 // For boundary check, decrease all end cooridnate value.
-                result[i] = input[i] - 1;
+                if(flags[i])
+                    result[i] = input[i] - 1;
+                else
+                    result[i] = input[i];
             }
-
             return result;
+        }
+
+        void fillFlag(bool flags[])
+        {
+            Dimensions const& dims = _schema.getDimensions();
+            size_t nDims = dims.size();
+            size_t nPar = _parameters.size() - (nDims * 2 + 1);
+
+            for (size_t i = 0 ; i < nPar; i++)
+            {
+                Value const& flag = ((std::shared_ptr<OperatorParamPhysicalExpression>&)_parameters[i + nDims * 2 + 1])->getExpression()->evaluate();
+                flags[i] = flag.getBool();
+            }
         }
 
         virtual PhysicalBoundaries getOutputBoundaries(const std::vector<PhysicalBoundaries> & inputBoundaries,
@@ -126,25 +143,31 @@ namespace scidb {
 
             Dimensions const& dims = _schema.getDimensions();
             size_t nDims = dims.size();
-            assert(_parameters.size() == nDims * 2 + 1);
+            assert(_parameters.size() >= nDims * 2 + 1);
+            assert(_parameters.size() <= nDims * 3 + 1);
             assert(_parameters[0]->getParamType() == PARAM_PHYSICAL_EXPRESSION);
             checkOrUpdateIntervals(_schema, inputArrays[0]);
 
+            bool flags[nDims] = { true, };
+            fillFlag(flags);
             std::shared_ptr<Array> inputArray = ensureRandomAccess(inputArrays[0], query);
 
             Coordinates lowPos = getWindowStart(query);
             Coordinates highPos = getWindowEnd(query);
 
-            Coordinates innerLowPos = getInnerWindowStart(lowPos);
-            Coordinates innerHighPos = getInnerWindowEnd(highPos);
+            Coordinates innerLowPos = getInnerWindowStart(lowPos, flags);
+            Coordinates innerHighPos = getInnerWindowEnd(highPos, flags);
 
             SpatialRangesPtr spatialRangesPtr = make_shared<SpatialRanges>(lowPos.size());
             SpatialRangesPtr innerSpatialRangesPtr = make_shared<SpatialRanges>(innerLowPos.size());
-            if (isDominatedBy(innerLowPos, innerHighPos)) {
+            if (isDominatedBy(innerLowPos, innerHighPos))
+            {
                 spatialRangesPtr->_ranges.push_back(SpatialRange(lowPos, highPos));
                 innerSpatialRangesPtr->_ranges.push_back(SpatialRange(innerLowPos, innerHighPos));
+            }else if(isDominatedBy(lowPos, highPos))
+            {
+                spatialRangesPtr->_ranges.push_back(SpatialRange(lowPos, highPos));
             }
-
             return std::shared_ptr<Array>(
                     make_shared<BCBetweenArray>(
                             _schema,
