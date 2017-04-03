@@ -58,32 +58,34 @@ namespace scidb
     typedef std::shared_ptr<SpatialRanges> SpatialRangesPtr;
     typedef std::shared_ptr<SpatialRangesChunkPosIterator> SpatialRangesChunkPosIteratorPtr;
 
+    std::string coordinateToString(Coordinates const& coor);
+
     class BCBetweenChunk : public DelegateChunk
     {
         friend class BCBetweenChunkIterator;
     public:
         // Cannot move this function to BCBetweenArray::createChunkIterator()
-        // It needs fullyInside member variable but, BCBetweenArray cannot know.
+        // It needs _fullyInside member variable but, BCBetweenArray cannot know.
          virtual std::shared_ptr<ConstChunkIterator> getConstIterator(int iterationMode) const;
         virtual void setInputChunk(ConstChunk const& inputChunk);
 
         BCBetweenChunk(BCBetweenArray const& array, DelegateArrayIterator const& iterator, AttributeID attrID);
 
     private:
-        BCBetweenArray const& array;
-        SpatialRange myRange;  // the firstPosition and lastPosition of this _chunk.
-        bool fullyInside;
-        bool fullyOutside;
-        std::shared_ptr<ConstArrayIterator> emptyBitmapIterator;
+        BCBetweenArray const& _array;
+        SpatialRange _myRange;  // the firstPosition and lastPosition of this _chunk.
+        bool _fullyInside;
+        bool _fullyOutside;
+        std::shared_ptr<ConstArrayIterator> _emptyBitmapIterator;
     };
 
     class BCBetweenChunkIterator : public DelegateChunkIterator, CoordinatesMapper
     {
     protected:
         Value& evaluate();
-        Value& buildBitmap();
         bool filter();
         void moveNext();
+        void advancedMoveNext();
         void nextVisible();
 
     public:
@@ -106,10 +108,12 @@ namespace scidb
                                BCBetweenChunk const& chunk, int iterationMode);
 
     protected:
+
+
+    protected:
         BCBetweenArray const& _array;
         BCBetweenChunk const& _chunk;
-        std::shared_ptr<ConstChunkIterator> _inputIterator;
-        Coordinates _currPos;
+        Coordinates _curPos;
         int _mode;
         bool _hasCurrent;
         bool _ignoreEmptyCells;
@@ -246,10 +250,14 @@ namespace scidb
         virtual ConstChunk const& getChunk();
 
     protected:
-        BCBetweenArray const& array;
+        bool setAllIteratorsPosition(Coordinates const& pos);
+        void moveNext();
+
+    protected:
+        BCBetweenArray const& _array;
         SpatialRangesChunkPosIteratorPtr _spatialRangesChunkPosIteratorPtr;
-        Coordinates pos;
-        bool hasCurrent;
+        Coordinates _curPos;
+        bool _hasCurrent;
 
         /**
          * @see BetweenChunkIterator::_hintForSpatialRanges
@@ -274,14 +282,14 @@ namespace scidb
         void advanceToNextChunkInRange();
 
     private:
-        std::vector< std::shared_ptr<ConstArrayIterator> > iterators;
-        std::shared_ptr<ConstArrayIterator> emptyBitmapIterator;
-        AttributeID inputAttrID;
+        std::vector< std::shared_ptr<ConstArrayIterator> > _iterators;
+        std::shared_ptr<ConstArrayIterator> _emptyBitmapIterator;
+        AttributeID _inputAttrID;
     };
 
     class BCBetweenArrayEmptyBitmapIterator : public BCBetweenArrayIterator
     {
-        BCBetweenArray& array;
+        BCBetweenArray& _array;
     public:
         virtual ConstChunk const& getChunk();
         BCBetweenArrayEmptyBitmapIterator(BCBetweenArray const& array, AttributeID attrID, AttributeID inputAttrID);
@@ -298,6 +306,7 @@ namespace scidb
     public:
         BCBetweenArray(ArrayDesc const& desc,
                        SpatialRangesPtr const& spatialRangesPtr,
+                       SpatialRangesPtr const& innerSpatialRangesPtr,
                        std::shared_ptr<Array> const& input,
                        std::shared_ptr<Expression> expr,
                        std::shared_ptr<Query>& query,
@@ -312,6 +321,12 @@ namespace scidb
          * The original spatial ranges.
          */
         SpatialRangesPtr _spatialRangesPtr;
+
+        /**
+         * Inner spatial ranges.
+         * No filter ranges.
+         */
+        SpatialRangesPtr _innerSpatialRnagesPtr;
 
         /**
          * The modified spatial ranges where every SpatialRange._low is reduced by (interval-1).

@@ -82,6 +82,32 @@ namespace scidb {
             return result;
         }
 
+        Coordinates getInnerWindowStart(Coordinates const& input) const
+        {
+            size_t nDims = input.size();
+            Coordinates result(nDims);
+            for(size_t i = 0; i < nDims; i++)
+            {
+                // For boundary check, increase all start coordinate value.
+                result[i] = input[i] + 1;
+            }
+
+            return result;
+        }
+
+        Coordinates getInnerWindowEnd(Coordinates const& input) const
+        {
+            size_t nDims = input.size();
+            Coordinates result(nDims);
+            for(size_t i = 0; i < nDims; i++)
+            {
+                // For boundary check, decrease all end cooridnate value.
+                result[i] = input[i] - 1;
+            }
+
+            return result;
+        }
+
         virtual PhysicalBoundaries getOutputBoundaries(const std::vector<PhysicalBoundaries> & inputBoundaries,
                                                        const std::vector< ArrayDesc> & inputSchemas) const
         {
@@ -108,15 +134,22 @@ namespace scidb {
 
             Coordinates lowPos = getWindowStart(query);
             Coordinates highPos = getWindowEnd(query);
+
+            Coordinates innerLowPos = getInnerWindowStart(lowPos);
+            Coordinates innerHighPos = getInnerWindowEnd(highPos);
+
             SpatialRangesPtr spatialRangesPtr = make_shared<SpatialRanges>(lowPos.size());
-            if (isDominatedBy(lowPos, highPos)) {
+            SpatialRangesPtr innerSpatialRangesPtr = make_shared<SpatialRanges>(innerLowPos.size());
+            if (isDominatedBy(innerLowPos, innerHighPos)) {
                 spatialRangesPtr->_ranges.push_back(SpatialRange(lowPos, highPos));
+                innerSpatialRangesPtr->_ranges.push_back(SpatialRange(innerLowPos, innerHighPos));
             }
 
             return std::shared_ptr<Array>(
                     make_shared<BCBetweenArray>(
                             _schema,
                             spatialRangesPtr,
+                            innerSpatialRangesPtr,
                             inputArray,
                             ((std::shared_ptr<OperatorParamPhysicalExpression>&)_parameters[0])->getExpression(), query, _tileMode));
         }

@@ -37,20 +37,32 @@ namespace scidb
 {
     using namespace boost;
 
+    static log4cxx::LoggerPtr logger(log4cxx::Logger::getLogger("scidb.query.bcbetween"));
+
+    std::string coordinateToString(Coordinates const& coor)
+    {
+        std::ostringstream oss;
+        oss << "[";
+
+        for(int i = 0; i < coor.size(); i++)
+        {
+            oss << coor[i];
+            if(i != coor.size() - 1)
+            {
+                oss << ",";
+            }
+        }
+
+        oss << "]";
+
+        return oss.str();
+    }
     //
     // Between _chunk methods
     //
     std::shared_ptr<ConstChunkIterator> BCBetweenChunk::getConstIterator(int iterationMode) const
     {
-
-//        return std::shared_ptr<ConstChunkIterator>(
-//                attr.isEmptyIndicator()
-//                ? (attr.getId() >= inputArray->getArrayDesc().getAttributes().size())
-//                  ? (DelegateChunkIterator*)new NewBitmapBCBetweenChunkIterator(arrayIterator, chunk, iterationMode)
-//                  : (DelegateChunkIterator*)new ExistedBitmapBCBetweenChunkIterator(arrayIterator, chunk, iterationMode)
-//                : (DelegateChunkIterator*)new BCBetweenChunkIterator(arrayIterator, chunk, iterationMode)
-//        );
-
+        LOG4CXX_DEBUG(logger, "BCBetweenChunk::getConstIterator() + ");
         BCBetweenArrayIterator arrayIterator = (BCBetweenArrayIterator const&)getArrayIterator();
         AttributeDesc const& attr = getAttributeDesc();
         // TileMode is false.
@@ -65,24 +77,24 @@ namespace scidb
         iterationMode &= ~ChunkIterator::INTENDED_TILE_MODE;
         return std::shared_ptr<ConstChunkIterator>(
                 attr.isEmptyIndicator()
-                ? (attrID >= array.getInputArray()->getArrayDesc().getAttributes().size())
-                  ? fullyInside
+                ? (attrID >= _array.getInputArray()->getArrayDesc().getAttributes().size())
+                  ? _fullyInside
                     ? (ConstChunkIterator*)new EmptyBitmapBCBetweenChunkIterator(arrayIterator, *this, iterationMode & ~ConstChunkIterator::IGNORE_DEFAULT_VALUES)
                     : (ConstChunkIterator*)new NewBitmapBCBetweenChunkIterator(arrayIterator, *this, iterationMode & ~ConstChunkIterator::IGNORE_DEFAULT_VALUES)
-                  : fullyInside
+                  : _fullyInside
                     ? (ConstChunkIterator*)new DelegateChunkIterator(this, iterationMode & ~ConstChunkIterator::IGNORE_DEFAULT_VALUES)
                     : (ConstChunkIterator*)new ExistedBitmapBCBetweenChunkIterator(arrayIterator, *this, iterationMode & ~ConstChunkIterator::IGNORE_DEFAULT_VALUES)
-                : fullyInside
+                : _fullyInside
                   ? (ConstChunkIterator*)new DelegateChunkIterator(this, iterationMode)
                   : (ConstChunkIterator*)new BCBetweenChunkIterator(arrayIterator, *this, iterationMode));
     }
 
     BCBetweenChunk::BCBetweenChunk(BCBetweenArray const& arr, DelegateArrayIterator const& iterator, AttributeID attrID)
             : DelegateChunk(arr, iterator, attrID, false),
-              array(arr),
-              myRange(arr.getArrayDesc().getDimensions().size()),
-              fullyInside(false),
-              fullyOutside(false)
+              _array(arr),
+              _myRange(arr.getArrayDesc().getDimensions().size()),
+              _fullyInside(false),
+              _fullyOutside(false)
     {
         tileMode = false;
     }
@@ -90,180 +102,101 @@ namespace scidb
     void BCBetweenChunk::setInputChunk(ConstChunk const& inputChunk)
     {
         DelegateChunk::setInputChunk(inputChunk);
-        myRange._low = inputChunk.getFirstPosition(true);
-        myRange._high = inputChunk.getLastPosition(true);
+        _myRange._low = inputChunk.getFirstPosition(true);
+        _myRange._high = inputChunk.getLastPosition(true);
 
-        // TO-DO: the fullyInside computation is simple but not optimal.
+        // TO-DO: the _fullyInside computation is simple but not optimal.
         // It is possible that the current _chunk is fully inside the union of the specified ranges,
         // although not fully contained in any of them.
         size_t dummy = 0;
-        fullyInside  =  array._spatialRangesPtr->findOneThatContains(myRange, dummy);
-        fullyOutside = !array._spatialRangesPtr->findOneThatIntersects(myRange, dummy);
+        _fullyInside = _array._innerSpatialRnagesPtr->findOneThatContains(_myRange, dummy);
+        _fullyOutside = !_array._spatialRangesPtr->findOneThatIntersects(_myRange, dummy);
 
-        isClone = fullyInside && attrID < array.getInputArray()->getArrayDesc().getAttributes().size();
-        if (emptyBitmapIterator) {
-            if (!emptyBitmapIterator->setPosition(inputChunk.getFirstPosition(false)))
+        isClone = _fullyInside && attrID < _array.getInputArray()->getArrayDesc().getAttributes().size();
+        if (_emptyBitmapIterator)
+        {
+            if (!_emptyBitmapIterator->setPosition(inputChunk.getFirstPosition(false)))
                 throw USER_EXCEPTION(SCIDB_SE_EXECUTION, SCIDB_LE_OPERATION_FAILED) << "setPosition";
         }
     }
 
     inline Value& BCBetweenChunkIterator::evaluate()
     {
+        LOG4CXX_DEBUG(logger, "BCBetweenChunkIterator::evaluate() +");
+        LOG4CXX_DEBUG(logger, "BCBetweenChunkIterator::evaluate() SIZE : " + std::to_string(_array.bindings.size()));
+        LOG4CXX_DEBUG(logger, "BCBetweenChunkIterator::evaluate() POS : " + coordinateToString(_curPos));
         for (size_t i = 0, n = _array.bindings.size(); i < n; i++)
         {
             switch (_array.bindings[i].kind)
             {
                 case BindInfo::BI_ATTRIBUTE:
+                {
+                    if(_iterators[i])
+                    {
+                        LOG4CXX_DEBUG(logger, "BCBetweenChunkIterator::evaluate() _iterator exist");
+                        LOG4CXX_DEBUG(logger, "BCBetweenChunkIterator::evaluate() _iterator[" + std::to_string(i) + "] : " + coordinateToString(_iterators[i]->getPosition()));
+                    }else
+                    {
+                        LOG4CXX_DEBUG(logger, "BCBetweenChunkIterator::evaluate() _iterator don't exist");
+                    }
                     _params[i] = _iterators[i]->getItem();
                     break;
+                }
                 case BindInfo::BI_COORDINATE:
-                    if (_mode & TILE_MODE)
-                    {
-                        _iterators[i]->getItem().getTile()->getCoordinates(
-                                _array.getInputArray()->getArrayDesc(),
-                                _array.bindings[i].resolvedId,
-                                _iterators[i]->getChunk().getFirstPosition(false),
-                                _iterators[i]->getPosition(),
-                                _query,
-                                _params[i],
-                                !(_mode & IGNORE_OVERLAPS));
-                    } else
-                    {
-                        _params[i].setInt64(_inputIterator->getPosition()[_array.bindings[i].resolvedId]);
-                    }
+                {
+                    _params[i].setInt64(inputIterator->getPosition()[_array.bindings[i].resolvedId]);
                     break;
-
+                }
                 default:
                     break;
             }
         }
 
+        LOG4CXX_DEBUG(logger, "BCBetweenChunkIterator::evaluate() -");
         return const_cast<Value&>(_array.expression->evaluate(_params));
     }
 
     inline bool BCBetweenChunkIterator::filter()
     {
-        Value const& result = evaluate();
-        return !result.isNull() && result.getBool();
-    }
-
-    void BCBetweenChunkIterator::moveNext()
-    {
-        ++(*inputIterator);
-        if (!inputIterator->end()) {
-            for (size_t i = 0, n = _iterators.size(); i < n; i++) {
-                if (_iterators[i] && _iterators[i] != inputIterator) {
-                    ++(*_iterators[i]);
-                }
-            }
+        LOG4CXX_DEBUG(logger, "BCBetweenChunkIterator::filter() :" + coordinateToString(_curPos));
+        if(_array._innerSpatialRnagesPtr->findOneThatContains(_curPos, _hintForSpatialRanges))
+        {
+            return true;
         }
-    }
 
-    void BCBetweenChunkIterator::nextVisible()
-    {
-        while (!inputIterator->end()) {
-            if ((_mode & TILE_MODE) || filter()) {
-                _hasCurrent = true;
-                return;
-            }
-            moveNext();
+        if(_array._spatialRangesPtr->findOneThatContains(_curPos, _hintForSpatialRanges))
+        {
+            Value const& result = evaluate();
+            return !result.isNull() && result.getBool();
         }
-        _hasCurrent = false;
-    }
 
-    inline Value& BCBetweenChunkIterator::buildBitmap()
-    {
-        Value& value = evaluate();
-        RLEPayload* inputPayload = value.getTile();
-        RLEPayload::append_iterator appender(_tileValue.getTile());
-        RLEPayload::iterator vi(inputPayload);
-        if (!_emptyBitmapIterator->setPosition(inputIterator->getPosition()))
-            throw USER_EXCEPTION(SCIDB_SE_EXECUTION, SCIDB_LE_OPERATION_FAILED) << "setPosition";
-        RLEPayload* emptyBitmap = _emptyBitmapIterator->getItem().getTile();
-        RLEPayload::iterator ei(emptyBitmap);
-
-#ifndef NDEBUG
-        position_t prevPos = 0;
-#endif
-
-        Value trueVal, falseVal;
-        trueVal.setBool(true);
-        falseVal.setBool(false);
-        while (!ei.end()) {
-#ifndef NDEBUG
-            position_t currPos = ei.getPPos();
-#endif
-            assert (prevPos == currPos);
-            uint64_t count;
-            if (ei.checkBit()) {
-                count = min(vi.getRepeatCount(), ei.getRepeatCount());
-                appender.add((vi.isNull()==false && vi.checkBit()) ? trueVal : falseVal, count);
-                vi += count;
-            } else {
-                count = ei.getRepeatCount();
-                appender.add(falseVal, count);
-            }
-            ei += count;
-
-#ifndef NDEBUG
-            prevPos = currPos + count;
-#endif
-        }
-        appender.flush();
-        return _tileValue;
+        return false;
     }
 
     Value const& BCBetweenChunkIterator::getItem()
     {
+        LOG4CXX_DEBUG(logger, "BCBetweenChunkIterator::getItem() +");
+        LOG4CXX_DEBUG(logger, coordinateToString(_curPos));
         if (!_hasCurrent)
         {
+            LOG4CXX_DEBUG(logger, "BCBetweenChunkIterator::getItem() no _hasCurrent Exception");
             throw USER_EXCEPTION(SCIDB_SE_EXECUTION, SCIDB_LE_NO_CURRENT_ELEMENT);
         }
 
-        if (_mode & TILE_MODE) {
-            RLEPayload* newEmptyBitmap = evaluate().getTile();
-            RLEPayload::iterator ei(newEmptyBitmap);
-            Value const& value = inputIterator->getItem();
-            RLEPayload* inputPayload = value.getTile();
-            RLEPayload::iterator vi(inputPayload);
-
-            // This needs to compare against getMaxLength() or multiple tests
-            // will fail with scidb::SCIDB_SE_NETWORK::SCIDB_LE_CANT_SEND_RECEIVE.
-            if (newEmptyBitmap->count() == CoordinateBounds::getMaxLength()) {
-                assert(newEmptyBitmap->nSegments() == 1);
-                if (ei.isNull() == false && ei.checkBit()) {
-                    // empty bitmap containing all ones: just return original value
-                    return value;
-                }
-                _tileValue.getTile()->clear();
-            } else {
-                RLEPayload::append_iterator appender(_tileValue.getTile());
-                Value v;
-                while (!ei.end()) {
-                    uint64_t count = ei.getRepeatCount();
-                    if (ei.isNull() == false && ei.checkBit()) {
-                        count = appender.add(vi, count);
-                    } else {
-                        vi += count;
-                    }
-                    ei += count;
-                }
-                appender.flush();
-            }
-            return _tileValue;
-        }
-
-        return _inputIterator->getItem();
+        return inputIterator->getItem();
     }
 
     bool BCBetweenChunkIterator::isEmpty() const
     {
+        LOG4CXX_DEBUG(logger, "BCBetweenChunkIterator::isEmpty() +");
+
         if (!_hasCurrent)
         {
+            LOG4CXX_DEBUG(logger, "BCBetweenChunkIterator::isEmpty() no _hasCurrent Exception");
             throw USER_EXCEPTION(SCIDB_SE_EXECUTION, SCIDB_LE_NO_CURRENT_ELEMENT);
         }
-        return _inputIterator->isEmpty() ||
-               !_array._spatialRangesPtr->findOneThatContains(_currPos, _hintForSpatialRanges);
+        return inputIterator->isEmpty() ||
+               !_array._spatialRangesPtr->findOneThatContains(_curPos, _hintForSpatialRanges);
     }
 
     bool BCBetweenChunkIterator::end()
@@ -273,78 +206,111 @@ namespace scidb
 
     void BCBetweenChunkIterator::operator ++()
     {
-        if (_ignoreEmptyCells)
-        {
-            while (true)
-            {
-                ++(*_inputIterator);
-                if (!_inputIterator->end())
-                {
-                    Coordinates const& pos = _inputIterator->getPosition();
+        LOG4CXX_DEBUG(logger, "BCBetweenChunkIterator::operator ++() IN : " + coordinateToString(_curPos));
+        advancedMoveNext();
+        LOG4CXX_DEBUG(logger, "BCBetweenChunkIterator::operator ++() OUT : " + coordinateToString(_curPos));
+    }
 
-                    if (_array._spatialRangesPtr->findOneThatContains(pos, _hintForSpatialRanges))
-                    {
-                        _currPos = pos;
-                        _hasCurrent = true;
-                        return;
-                    }
-                } else {
-                    break;
+    void BCBetweenChunkIterator::moveNext()
+    {
+        LOG4CXX_DEBUG(logger, "BCBetweenChunkIterator::moveNext() IN : " + coordinateToString(_curPos));
+        ++(*inputIterator);
+        if (!inputIterator->end())
+        {
+            for (size_t i = 0, n = _iterators.size(); i < n; i++)
+            {
+                if (_iterators[i] && _iterators[i] != inputIterator)
+                {
+                    ++(*_iterators[i]);
                 }
             }
-            _hasCurrent = false;
-        } else
-        {
-            ++(*_inputIterator);
-            _hasCurrent = !_inputIterator->end();
+
+            _curPos = inputIterator->getPosition();
         }
+    }
+
+    void BCBetweenChunkIterator::advancedMoveNext()
+    {
+        LOG4CXX_DEBUG(logger, "BCBetweenChunkIterator::advancedMoveNext() IN : " + coordinateToString(_curPos));
+        moveNext();
+
+        if(_ignoreEmptyCells)
+        {
+            nextVisible();
+        }
+    }
+
+    void BCBetweenChunkIterator::nextVisible()
+    {
+        LOG4CXX_DEBUG(logger, "BCBetweenChunkIterator::nextVisible() IN : " + coordinateToString(_curPos));
+        while(!inputIterator->end())
+        {
+            LOG4CXX_DEBUG(logger, "BCBetweenChunkIterator::nextVisible() IT : " + coordinateToString(_curPos));
+            if(filter())
+            {
+                LOG4CXX_DEBUG(logger, "BCBetweenChunkIterator::nextVisible() FIND : " + coordinateToString(_curPos));
+                _hasCurrent = true;
+                return;
+            }
+            moveNext();
+        }
+        LOG4CXX_DEBUG(logger, "BCBetweenChunkIterator::nextVisible() END _hasCurrent = false");
+        _hasCurrent = false;
     }
 
     Coordinates const& BCBetweenChunkIterator::getPosition()
     {
-        return _ignoreEmptyCells ? _currPos : _inputIterator->getPosition();
+        return _ignoreEmptyCells ? _curPos : inputIterator->getPosition();
     }
 
-    bool BCBetweenChunkIterator::setPosition(Coordinates const& pos)
+    bool BCBetweenChunkIterator::setPosition(Coordinates const& targetPos)
     {
-        if (_ignoreEmptyCells) {
-            if (_array._spatialRangesPtr->findOneThatContains(pos, _hintForSpatialRanges)) {
-                _hasCurrent = _inputIterator->setPosition(pos);
-                if (_hasCurrent) {
-                    _currPos = pos;
-                }
-                return _hasCurrent;
-            }
-            _hasCurrent = false;
-            return false;
-        }
+        LOG4CXX_DEBUG(logger, "BCBetweenChunkIterator::setPosition(" + coordinateToString(targetPos) + ")");
 
-        _hasCurrent = _inputIterator->setPosition(pos);
-        return _hasCurrent;
+        if(inputIterator->setPosition(targetPos))
+        {
+            for (size_t i = 0, n = _iterators.size(); i < n; i++)
+            {
+                if (_iterators[i] && _iterators[i] != inputIterator)
+                {
+                    if (!_iterators[i]->setPosition(targetPos))
+                        throw USER_EXCEPTION(SCIDB_SE_EXECUTION, SCIDB_LE_OPERATION_FAILED) << "setPosition";
+                }
+            }
+            _curPos = targetPos;
+            _hasCurrent = filter();
+
+            if (_ignoreEmptyCells)
+            {
+                nextVisible();
+            }
+            return _hasCurrent;
+        } else
+        {
+            _hasCurrent = false;
+            return _hasCurrent;
+        }
     }
 
     void BCBetweenChunkIterator::reset()
     {
-        if ( _ignoreEmptyCells ) {
-            _inputIterator->reset();
-            if (!_inputIterator->end()) {
-                Coordinates const& pos = _inputIterator->getPosition();
-                if (_array._spatialRangesPtr->findOneThatContains(pos, _hintForSpatialRanges)) {
-                    _currPos = pos;
-                    _hasCurrent = true;
-                    return;
-                }
-                else {
-                    ++(*this);  // The operator++() will skip the cells outside all the requested ranges.
+        LOG4CXX_DEBUG(logger, "BCBetweenChunkIterator::reset() INIT : " + coordinateToString(_curPos));
+        inputIterator->reset();
+        if (!inputIterator->end())
+        {
+            for (size_t i = 0, n = _iterators.size(); i < n; i++)
+            {
+                if (_iterators[i] && _iterators[i] != inputIterator)
+                {
+                    _iterators[i]->reset();
                 }
             }
-            else {
-                _hasCurrent = false;
-            }
-        } else {
-            _inputIterator->reset();
-            _hasCurrent = !_inputIterator->end();
+
+            _curPos = inputIterator->getPosition();
         }
+
+        nextVisible();
+        LOG4CXX_DEBUG(logger, "BCBetweenChunkIterator::reset() FINISH : " + coordinateToString(_curPos));
     }
 
     ConstChunk const& BCBetweenChunkIterator::getChunk()
@@ -355,11 +321,10 @@ namespace scidb
     BCBetweenChunkIterator::BCBetweenChunkIterator(BCBetweenArrayIterator const& arrayIterator,
                                                    BCBetweenChunk const& aChunk, int iterationMode)
             : CoordinatesMapper(aChunk), DelegateChunkIterator(&aChunk, iterationMode),
-              _array(aChunk.array),
+              _array(aChunk._array),
               _chunk(aChunk),
-              _inputIterator(aChunk.getInputChunk().getConstIterator(iterationMode & ~INTENDED_TILE_MODE)),
               _iterators(_array.bindings.size()),
-              _currPos(_array.getArrayDesc().getDimensions().size()),
+              _curPos(_array.getArrayDesc().getDimensions().size()),
               _mode(iterationMode & ~INTENDED_TILE_MODE & ~TILE_MODE),
               _ignoreEmptyCells((iterationMode & IGNORE_EMPTY_CELLS) == IGNORE_EMPTY_CELLS),
               _type(_chunk.getAttributeDesc().getType()),
@@ -367,46 +332,43 @@ namespace scidb
               _params(*_array.expression),
               _query(Query::getValidQueryPtr(_array._query))
     {
-        reset();
+        LOG4CXX_DEBUG(logger, "BCBetweenChunkIterator::BCBetweenChunkIterator() +");
+        inputIterator = aChunk.getInputChunk().getConstIterator(iterationMode & ~INTENDED_TILE_MODE);
 
         for (size_t i = 0, n = _array.bindings.size(); i < n; i++) {
             switch (_array.bindings[i].kind) {
                 case BindInfo::BI_COORDINATE:
-                    if (_mode & TILE_MODE) {
-                        if (arrayIterator.iterators[i] == arrayIterator.getInputIterator()) {
-                            _iterators[i] = inputIterator;
-                        } else {
-                            _iterators[i] = arrayIterator.iterators[i]->getChunk().getConstIterator(iterationMode);
-
-                        }
-                    }
+                {
+                    //  if iterator is tile mode, then do something
                     break;
+                }
                 case BindInfo::BI_ATTRIBUTE:
-                    if ((AttributeID)_array.bindings[i].resolvedId == arrayIterator.inputAttrID) {
+                {
+                    LOG4CXX_DEBUG(logger, "BCBetweenChunkIterator::BCBetweenChunkIterator() BI_ATTRIBUTE");
+                    if ((AttributeID)_array.bindings[i].resolvedId == arrayIterator._inputAttrID)
+                    {
+                        LOG4CXX_DEBUG(logger, "BCBetweenChunkIterator::BCBetweenChunkIterator() INPUT ATTRIBUTE");
                         _iterators[i] = inputIterator;
-                    } else {
-                        _iterators[i] = arrayIterator.iterators[i]->getChunk().getConstIterator((_mode & TILE_MODE)|IGNORE_EMPTY_CELLS);
+                    } else
+                    {
+                        LOG4CXX_DEBUG(logger, "BCBetweenChunkIterator::BCBetweenChunkIterator() getConstIterator");
+                        _iterators[i] = arrayIterator._iterators[i]->getChunk().getConstIterator(IGNORE_EMPTY_CELLS);
                     }
                     break;
+                }
                 case BindInfo::BI_VALUE:
+                {
                     _params[i] = _array.bindings[i].value;
                     break;
+                }
                 default:
                     break;
             }
         }
-        if (iterationMode & TILE_MODE) {
-            _tileValue = Value(TypeLibrary::getType(chunk->getAttributeDesc().getType()),Value::asTile);
-            if (arrayIterator.emptyBitmapIterator) {
-                _emptyBitmapIterator = arrayIterator.emptyBitmapIterator->getChunk().getConstIterator(TILE_MODE|IGNORE_EMPTY_CELLS);
-            } else {
-                ArrayDesc const& arrayDesc = chunk->getArrayDesc();
-                Address addr(arrayDesc.getEmptyBitmapAttribute()->getId(), chunk->getFirstPosition(false));
-                _shapeChunk.initialize(&_array, &arrayDesc, addr, 0);
-                _emptyBitmapIterator = _shapeChunk.getConstIterator(TILE_MODE|IGNORE_EMPTY_CELLS);
-            }
-        }
+
+        reset();
         nextVisible();
+        LOG4CXX_DEBUG(logger, "BCBetweenChunkIterator::BCBetweenChunkIterator() -");
     }
 
     //
@@ -414,16 +376,9 @@ namespace scidb
     //
     Value const& ExistedBitmapBCBetweenChunkIterator::getItem()
     {
-        // TODO :: Optimize here
-//        if (_mode & TILE_MODE) {
-//            return buildBitmap();
-//        } else {
         _value.setBool(
-                _inputIterator->getItem().getBool() &&
-                _array._spatialRangesPtr->findOneThatContains(_currPos, _hintForSpatialRanges) &&
-                filter()
+                inputIterator->getItem().getBool() && filter()
         );
-//        }
         return _value;
     }
 
@@ -438,7 +393,7 @@ namespace scidb
     //
     Value const& NewBitmapBCBetweenChunkIterator::getItem()
     {
-        _value.setBool(_array._spatialRangesPtr->findOneThatContains(_currPos, _hintForSpatialRanges));
+        _value.setBool(_array._spatialRangesPtr->findOneThatContains(_curPos, _hintForSpatialRanges));
         if(_value.getBool())
         {
             return evaluate();
@@ -477,13 +432,13 @@ namespace scidb
     //
     ConstChunk const& BCBetweenArrayEmptyBitmapIterator::getChunk()
     {
-        chunk = array.getEmptyBitmapChunk(this);
+        chunk = _array.getEmptyBitmapChunk(this);
         return *chunk->materialize();
     }
 
     BCBetweenArrayEmptyBitmapIterator::BCBetweenArrayEmptyBitmapIterator(BCBetweenArray const& arr, AttributeID outAttrID, AttributeID inAttrID)
             : BCBetweenArrayIterator(arr, outAttrID, inAttrID),
-              array((BCBetweenArray&)arr)
+              _array((BCBetweenArray&)arr)
     {}
 
     //
@@ -491,59 +446,88 @@ namespace scidb
     //
     BCBetweenArrayIterator::BCBetweenArrayIterator(BCBetweenArray const& arr, AttributeID attrID, AttributeID inputAttrID)
             : DelegateArrayIterator(arr, attrID, arr.getInputArray()->getConstIterator(inputAttrID)),
-              array(arr),
-              pos(arr.getArrayDesc().getDimensions().size()),
-              _hintForSpatialRanges(0)
+              _array(arr),
+              _curPos(arr.getArrayDesc().getDimensions().size()),
+              _hintForSpatialRanges(0),
+              _iterators(arr.bindings.size()),
+              _inputAttrID(inputAttrID)
     {
         _spatialRangesChunkPosIteratorPtr = std::shared_ptr<SpatialRangesChunkPosIterator>(
-                new SpatialRangesChunkPosIterator(array._spatialRangesPtr, array.getArrayDesc()));
+                new SpatialRangesChunkPosIterator(_array._spatialRangesPtr, _array.getArrayDesc()));
+
+        for (size_t i = 0, n = _iterators.size(); i < n; i++)
+        {
+            switch (_array.bindings[i].kind)
+            {
+                case BindInfo::BI_ATTRIBUTE:
+                {
+                    LOG4CXX_DEBUG(logger, "BCBetweenArrayIterator::BCBetweenArrayIterator() BI_ATTRIBUTE");
+                    if ((AttributeID)_array.bindings[i].resolvedId == inputAttrID)
+                    {
+                        LOG4CXX_DEBUG(logger, "BCBetweenArrayIterator::BCBetweenArrayIterator() INPUT ATTRIBUTE");
+                        _iterators[i] = inputIterator;
+                    } else
+                    {
+                        LOG4CXX_DEBUG(logger, "BCBetweenArrayIterator::BCBetweenArrayIterator() getConstIterator");
+                        _iterators[i] = _array.getInputArray()->
+                                getConstIterator(safe_static_cast<AttributeID>(_array.bindings[i].resolvedId));
+                    }
+                    break;
+                }
+                case BindInfo::BI_COORDINATE:
+                {
+                    // If tilemode, do something.
+                    break;
+                }
+                default:
+                    break;
+            }
+        }
+
         reset();
     }
 
     bool BCBetweenArrayIterator::end()
     {
-        return !hasCurrent;
+        return !_hasCurrent;
     }
 
     Coordinates const& BCBetweenArrayIterator::getPosition()
     {
-        if (!hasCurrent)
+        if (!_hasCurrent)
             throw USER_EXCEPTION(SCIDB_SE_EXECUTION, SCIDB_LE_NO_CURRENT_ELEMENT);
-        return pos;
+        return _curPos;
     }
 
     bool BCBetweenArrayIterator::setPosition(Coordinates const& newPos)
     {
         Coordinates newChunkPos = newPos;
-        array.getArrayDesc().getChunkPositionFor(newChunkPos);
+        _array.getArrayDesc().getChunkPositionFor(newChunkPos);
 
-        if (hasCurrent && pos == newChunkPos) {
+        if (_hasCurrent && _curPos == newChunkPos) {
             return true;
         }
 
-        // If cannot set position in the _inputIterator, fail.
-        if (! inputIterator->setPosition(newChunkPos)) {
-            hasCurrent = false;
-            return false;
-        }
-
         // If the position does not correspond to a _chunk intersecting some query range, fail.
-        if (!array._extendedSpatialRangesPtr->findOneThatContains(newChunkPos, _hintForSpatialRanges)) {
-            hasCurrent = false;
+        if (!_array._extendedSpatialRangesPtr->findOneThatContains(newChunkPos, _hintForSpatialRanges))
+        {
+            _hasCurrent = false;
             return false;
         }
 
         // Set position there.
-        hasCurrent = true;
+        _hasCurrent = true;
         chunkInitialized = false;
-        pos = newChunkPos;
-        if (_spatialRangesChunkPosIteratorPtr->end() || _spatialRangesChunkPosIteratorPtr->getPosition() > pos) {
+        _curPos = newChunkPos;
+        if (_spatialRangesChunkPosIteratorPtr->end() || _spatialRangesChunkPosIteratorPtr->getPosition() > _curPos)
+        {
             _spatialRangesChunkPosIteratorPtr->reset();
         }
-        _spatialRangesChunkPosIteratorPtr->advancePositionToAtLeast(pos);
-        assert(_spatialRangesChunkPosIteratorPtr->getPosition() == pos);
+        _spatialRangesChunkPosIteratorPtr->advancePositionToAtLeast(_curPos);
+        assert(_spatialRangesChunkPosIteratorPtr->getPosition() == _curPos);
 
-        return true;
+        // Set all iterators position.
+        return setAllIteratorsPosition(_curPos);
     }
 
     ConstChunk const& BCBetweenArrayIterator::getChunk()
@@ -553,26 +537,45 @@ namespace scidb
         return *chunk;
     }
 
+    void BCBetweenArrayIterator::moveNext()
+    {
+        chunkInitialized = false;
+        ++(*inputIterator);
+        for (size_t i = 0, n = _iterators.size(); i < n; i++)
+        {
+            if (_iterators[i] && _iterators[i] != inputIterator)
+            {
+                ++(*_iterators[i]);
+            }
+        }
+        if (_emptyBitmapIterator)
+        {
+            ++(*_emptyBitmapIterator);
+        }
+    }
+
     void BCBetweenArrayIterator::advanceToNextChunkInRange()
     {
         assert(!inputIterator->end() && !_spatialRangesChunkPosIteratorPtr->end());
 
-        hasCurrent = false;
+        _hasCurrent = false;
         chunkInitialized = false;
 
         while (!inputIterator->end())
         {
             // Increment _inputIterator.
-            ++(*inputIterator);
-            if (inputIterator->end()) {
-                assert(hasCurrent == false);
+            moveNext();
+            if (inputIterator->end())
+            {
+                assert(_hasCurrent == false);
                 return;
             }
-            pos = inputIterator->getPosition();
-            if (array._extendedSpatialRangesPtr->findOneThatContains(pos, _hintForSpatialRanges)) {
-                hasCurrent = true;
-                _spatialRangesChunkPosIteratorPtr->advancePositionToAtLeast(pos);
-                assert(_spatialRangesChunkPosIteratorPtr->getPosition() == pos);
+            _curPos = inputIterator->getPosition();
+            if (_array._extendedSpatialRangesPtr->findOneThatContains(_curPos, _hintForSpatialRanges))
+            {
+                _hasCurrent = true;
+                _spatialRangesChunkPosIteratorPtr->advancePositionToAtLeast(_curPos);
+                assert(_spatialRangesChunkPosIteratorPtr->getPosition() == _curPos);
                 return;
             }
 
@@ -584,34 +587,43 @@ namespace scidb
             // (i.e. finds a position the other one "like"), the algorithm declares victory.
             //
             // Another note:
-            // If advancePositionToAtLeast(pos) advances to a position > pos, we cannot increment spatialRangesChunkPosIterator.
+            // If advancePositionToAtLeast(_curPos) advances to a position > _curPos, we cannot increment spatialRangesChunkPosIterator.
             // The reason is that this new position has not been checked against _inputIterator for validity yet, and it will
             // be a mistake to blindly skip it.
             //
-            bool advanced = _spatialRangesChunkPosIteratorPtr->advancePositionToAtLeast(pos);
-            if (_spatialRangesChunkPosIteratorPtr->end()) {
-                assert(hasCurrent == false);
+            bool advanced = _spatialRangesChunkPosIteratorPtr->advancePositionToAtLeast(_curPos);
+            if (_spatialRangesChunkPosIteratorPtr->end())
+            {
+                assert(_hasCurrent == false);
                 return;
             }
-            if (! (advanced && _spatialRangesChunkPosIteratorPtr->getPosition() > pos)) {
+            if (! (advanced && _spatialRangesChunkPosIteratorPtr->getPosition() > _curPos))
+            {
                 ++(*_spatialRangesChunkPosIteratorPtr);
-                if (_spatialRangesChunkPosIteratorPtr->end()) {
-                    assert(hasCurrent == false);
+                if (_spatialRangesChunkPosIteratorPtr->end())
+                {
+                    assert(_hasCurrent == false);
                     return;
                 }
             }
             Coordinates const& myPos = _spatialRangesChunkPosIteratorPtr->getPosition();
-            if (inputIterator->setPosition(myPos)) {
+            if (inputIterator->setPosition(myPos))
+            {
+                LOG4CXX_DEBUG(logger, "BCBetweenArrayIterator::BCBetweenArrayIterator() SET NEW POS : " + coordinateToString(myPos));
+                setAllIteratorsPosition(myPos);
                 // The position suggested by _spatialRangesChunkPosIterator exists in _inputIterator.
                 // Declare victory!
-                pos = myPos;
-                hasCurrent = true;
+                _curPos = myPos;
+                _hasCurrent = true;
                 return;
-            }
-            else {
+            } else
+            {
                 // The setPosition, even though unsuccessful, may brought inputInterator to a bad state.
                 // Restore to its previous valid state (even though not in any query range).
-                bool restored = inputIterator->setPosition(pos);
+                LOG4CXX_DEBUG(logger, "BCBetweenArrayIterator::BCBetweenArrayIterator() RESTORE POS : " + coordinateToString(_curPos));
+
+                bool restored = inputIterator->setPosition(_curPos);
+                setAllIteratorsPosition(_curPos);
                 SCIDB_ASSERT(restored);
             }
         }
@@ -620,7 +632,7 @@ namespace scidb
     void BCBetweenArrayIterator::operator ++()
     {
         assert(!end());
-        assert(!inputIterator->end() && hasCurrent && !_spatialRangesChunkPosIteratorPtr->end());
+        assert(!inputIterator->end() && _hasCurrent && !_spatialRangesChunkPosIteratorPtr->end());
         assert(_spatialRangesChunkPosIteratorPtr->getPosition() == inputIterator->getPosition());
 
         advanceToNextChunkInRange();
@@ -632,42 +644,83 @@ namespace scidb
         inputIterator->reset();
         _spatialRangesChunkPosIteratorPtr->reset();
 
-        // If any of the two iterators is invalid, fail.
+        // If any of the two _iterators is invalid, fail.
         if (inputIterator->end() || _spatialRangesChunkPosIteratorPtr->end())
         {
-            hasCurrent = false;
+            _hasCurrent = false;
             return;
         }
 
         // Is _inputIterator pointing to a position intersecting some query range?
-        pos = inputIterator->getPosition();
-        hasCurrent = array._extendedSpatialRangesPtr->findOneThatContains(pos, _hintForSpatialRanges);
-        if (hasCurrent) {
-            assert(pos >= _spatialRangesChunkPosIteratorPtr->getPosition());
-            if (pos > _spatialRangesChunkPosIteratorPtr->getPosition()) {
-                _spatialRangesChunkPosIteratorPtr->advancePositionToAtLeast(pos);
-                assert(!_spatialRangesChunkPosIteratorPtr->end() && pos == _spatialRangesChunkPosIteratorPtr->getPosition());
+        _curPos = inputIterator->getPosition();
+        _hasCurrent = _array._extendedSpatialRangesPtr->findOneThatContains(_curPos, _hintForSpatialRanges);
+        if (_hasCurrent)
+        {
+            assert(_curPos >= _spatialRangesChunkPosIteratorPtr->getPosition());
+            if (_curPos > _spatialRangesChunkPosIteratorPtr->getPosition())
+            {
+                _spatialRangesChunkPosIteratorPtr->advancePositionToAtLeast(_curPos);
+                assert(!_spatialRangesChunkPosIteratorPtr->end() && _curPos == _spatialRangesChunkPosIteratorPtr->getPosition());
+            }
+
+            for (size_t i = 0, n = _iterators.size(); i < n; i++)
+            {
+                if (_iterators[i] && _iterators[i] != inputIterator)
+                {
+                    _iterators[i]->reset();
+                }
+            }
+            if (_emptyBitmapIterator)
+            {
+                _emptyBitmapIterator->reset();
             }
             return;
         }
 
         // Is spatialRangesChunkPosIterator pointing to a position that has data?
         Coordinates const& myPos = _spatialRangesChunkPosIteratorPtr->getPosition();
-        if (inputIterator->setPosition(myPos)) {
+        if (inputIterator->setPosition(myPos))
+        {
             // The position suggested by _spatialRangesChunkPosIterator exists in _inputIterator.
             // Declare victory!
-            pos = myPos;
-            hasCurrent = true;
+            setAllIteratorsPosition(myPos);
+            _curPos = myPos;
+            _hasCurrent = true;
+
             return;
-        }
-        else {
+        } else {
             // The setPosition, even though unsuccessful, may brought inputInterator to a bad state.
             // Restore to its previous valid state (even though not in any query range).
-            bool restored = inputIterator->setPosition(pos);
+            bool restored = inputIterator->setPosition(_curPos);
             SCIDB_ASSERT(restored);
+            setAllIteratorsPosition(_curPos);
         }
 
         advanceToNextChunkInRange();
+    }
+
+    bool BCBetweenArrayIterator::setAllIteratorsPosition(Coordinates const &pos)
+    {
+        if(inputIterator->setPosition(pos))
+        {
+            for(size_t i = 0, n = _iterators.size(); i < n; i++)
+            {
+                if(_iterators[i])
+                {
+                    if(!_iterators[i]->setPosition(pos))
+                        throw USER_EXCEPTION(SCIDB_SE_EXECUTION, SCIDB_LE_OPERATION_FAILED) << "setPosition";
+                }
+            }
+
+            if(_emptyBitmapIterator)
+            {
+                if(!_emptyBitmapIterator->setPosition(pos))
+                    throw USER_EXCEPTION(SCIDB_SE_EXECUTION, SCIDB_LE_OPERATION_FAILED) << "setPosition";
+            }
+            return true;
+        }
+
+        return false;
     }
 
     //
@@ -675,12 +728,14 @@ namespace scidb
     //
     BCBetweenArray::BCBetweenArray(ArrayDesc const& array,
                                    SpatialRangesPtr const& spatialRangesPtr,
+                                   SpatialRangesPtr const& innerSpatialRangesPtr,
                                    std::shared_ptr<Array> const& input,
                                    std::shared_ptr<Expression> expr,
                                    std::shared_ptr<Query>& query,
                                    bool tileMode)
             : DelegateArray(array, input),
               _spatialRangesPtr(spatialRangesPtr),
+              _innerSpatialRnagesPtr(innerSpatialRangesPtr),
               expression(expr),
               bindings(expr->getBindings()),
               _tileMode(tileMode),
@@ -716,13 +771,7 @@ namespace scidb
             }
         }
 
-#if FILTER_CHUNK_CACHE
-        return attrID == emptyAttrID
-            ? (DelegateArrayIterator*)new BCBetweenArrayEmptyBitmapIterator(*this, attrID, inputAttrID)
-            : (DelegateArrayIterator*)new BCBetweenArrayIterator(*this, attrID, inputAttrID);
-#else
         return new BCBetweenArrayIterator(*this, attrID, inputAttrID);
-#endif
     }
 
     DelegateChunk* BCBetweenArray::createChunk(DelegateArrayIterator const* iterator, AttributeID attrID) const
@@ -737,7 +786,8 @@ namespace scidb
         {
             ScopedMutexLock cs(mutex);
             chunk = cache[pos];
-            if (chunk) {
+            if (chunk)
+            {
                 return chunk;
             }
         }
@@ -746,7 +796,8 @@ namespace scidb
         chunk->materialize();
         {
             ScopedMutexLock cs(mutex);
-            if (cache.size() >= cacheSize) {
+            if (cache.size() >= cacheSize)
+            {
                 cache.erase(cache.begin());
             }
             cache[pos] = chunk;
