@@ -13,5 +13,5 @@ include_directories(${SCIDB}/include)
 link_libraries(.)
 link_libraries(${SCIDB}/lib ${SCIDB_THIRDPARTY}/3rdparty/boost/lib)
 
-set(SOURCE_FILES LogicalBCBetween.cpp plugin.cpp PhysicalBCBetween.cpp BCBetweenArray.cpp BCBetweenArray.h)
+set(SOURCE_FILES LogicalBCBetween.cpp plugin.cpp PhysicalBCBetween.cpp BCBetweenArray.cpp BCBetweenArray.h LogicalMLBetween.cpp PhysicalMLBetween.cpp MLBetweenArray.cpp MLBetweenArray.h system/MLCatalog.cpp system/MLCatalog.h)
 add_library(ml_between SHARED ${SOURCE_FILES})
