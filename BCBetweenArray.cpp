@@ -260,16 +260,16 @@ namespace scidb
         }
     }
 
-    void BCBetweenChunkIterator::reset()
+    void BCBetweenChunkIterator::restart()
     {
-        inputIterator->reset();
+        inputIterator->restart();
         if (!inputIterator->end())
         {
             for (size_t i = 0, n = _iterators.size(); i < n; i++)
             {
                 if (_iterators[i] && _iterators[i] != inputIterator)
                 {
-                    _iterators[i]->reset();
+                    _iterators[i]->restart();
                 }
             }
 
@@ -328,7 +328,7 @@ namespace scidb
             }
         }
 
-        reset();
+        restart();
         nextVisible();
     }
 
@@ -442,7 +442,7 @@ namespace scidb
             }
         }
 
-        reset();
+        restart();
     }
 
     bool BCBetweenArrayIterator::end()
@@ -479,7 +479,7 @@ namespace scidb
         _curPos = newChunkPos;
         if (_spatialRangesChunkPosIteratorPtr->end() || _spatialRangesChunkPosIteratorPtr->getPosition() > _curPos)
         {
-            _spatialRangesChunkPosIteratorPtr->reset();
+            _spatialRangesChunkPosIteratorPtr->restart();
         }
         _spatialRangesChunkPosIteratorPtr->advancePositionToAtLeast(_curPos);
         assert(_spatialRangesChunkPosIteratorPtr->getPosition() == _curPos);
@@ -593,11 +593,11 @@ namespace scidb
         advanceToNextChunkInRange();
     }
 
-    void BCBetweenArrayIterator::reset()
+    void BCBetweenArrayIterator::restart()
     {
         chunkInitialized = false;
-        inputIterator->reset();
-        _spatialRangesChunkPosIteratorPtr->reset();
+        inputIterator->restart();
+        _spatialRangesChunkPosIteratorPtr->restart();
 
         // If any of the two _iterators is invalid, fail.
         if (inputIterator->end() || _spatialRangesChunkPosIteratorPtr->end())
@@ -622,12 +622,12 @@ namespace scidb
             {
                 if (_iterators[i] && _iterators[i] != inputIterator)
                 {
-                    _iterators[i]->reset();
+                    _iterators[i]->restart();
                 }
             }
             if (_emptyBitmapIterator)
             {
-                _emptyBitmapIterator->reset();
+                _emptyBitmapIterator->restart();
             }
             return;
         }
@@ -701,13 +701,14 @@ namespace scidb
         _query = query;
 
         // Copy _spatialRangesPtr to extendedSpatialRangesPtr, but reducing low by (interval-1) to cover chunkPos.
-        _extendedSpatialRangesPtr = make_shared<SpatialRanges>(_spatialRangesPtr->_numDims);
-        _extendedSpatialRangesPtr->_ranges.reserve(_spatialRangesPtr->_ranges.size());
-        for (size_t i=0; i<_spatialRangesPtr->_ranges.size(); ++i) {
-            Coordinates newLow = _spatialRangesPtr->_ranges[i]._low;
+        _extendedSpatialRangesPtr = make_shared<SpatialRanges>(_spatialRangesPtr->numDims());
+        auto const& ranges = _spatialRangesPtr->ranges();
+        for (size_t i=0; i < ranges.size(); ++i) {
+            Coordinates newLow = ranges[i]._low;
             array.getChunkPositionFor(newLow);
-            _extendedSpatialRangesPtr->_ranges.push_back(SpatialRange(newLow, _spatialRangesPtr->_ranges[i]._high));
+            _extendedSpatialRangesPtr->insert(SpatialRange(newLow, ranges[i]._high));
         }
+        _extendedSpatialRangesPtr->buildIndex();
     }
 
     DelegateArrayIterator* BCBetweenArray::createArrayIterator(AttributeID attrID) const
