@@ -162,11 +162,14 @@ namespace scidb
             SpatialRangesPtr innerSpatialRangesPtr = make_shared<SpatialRanges>(innerLowPos.size());
             if (isDominatedBy(innerLowPos, innerHighPos))
             {
-                spatialRangesPtr->_ranges.push_back(SpatialRange(lowPos, highPos));
-                innerSpatialRangesPtr->_ranges.push_back(SpatialRange(innerLowPos, innerHighPos));
+                spatialRangesPtr->insert(SpatialRange(lowPos, highPos));
+                innerSpatialRangesPtr->insert(SpatialRange(innerLowPos, innerHighPos));
+                spatialRangesPtr->buildIndex();
+                innerSpatialRangesPtr->buildIndex();
             }else if(isDominatedBy(lowPos, highPos))
             {
-                spatialRangesPtr->_ranges.push_back(SpatialRange(lowPos, highPos));
+                spatialRangesPtr->insert(SpatialRange(lowPos, highPos));
+                spatialRangesPtr->buildIndex();
             }
             return std::shared_ptr<Array>(
                     make_shared<BCBetweenArray>(
