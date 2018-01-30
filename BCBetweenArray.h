@@ -99,7 +99,7 @@ namespace scidb
         virtual void operator ++();
         virtual Coordinates const& getPosition();
         virtual bool setPosition(Coordinates const& pos);
-        virtual void reset();
+        virtual void restart();
         virtual ConstChunk const& getChunk();
 
         std::shared_ptr<Query> getQuery() { return _query; }
@@ -245,7 +245,7 @@ namespace scidb
         /***
          * Reset simply changes the current position to all zeros
          */
-        virtual void reset();
+        virtual void restart();
 
         virtual ConstChunk const& getChunk();
 
@@ -277,7 +277,7 @@ namespace scidb
          *     (It may or may NOT exist in the database.)
          *
          * @note: by "exists in the database", we mean in the local SciDB instance.
-         * @note: in reset(), do NOT call this function if the initial position is already valid.
+         * @note: in restart(), do NOT call this function if the initial position is already valid.
          */
         void advanceToNextChunkInRange();
 
